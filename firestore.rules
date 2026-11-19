@@ -1,0 +1,367 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerified() && request.auth.token.email == 'ardaffa2000@gmail.com';
+    }
+
+    function emailToKey(email) {
+      return email.lower().replace('[^a-z0-9]', '_');
+    }
+
+    function hasValidRoleInvite(peran) {
+      return isVerified()
+        && request.auth.token.email is string
+        && exists(/databases/$(database)/documents/role_invites/$(emailToKey(request.auth.token.email)))
+        && get(/databases/$(database)/documents/role_invites/$(emailToKey(request.auth.token.email))).data.peran == peran;
+    }
+
+    function userDocExists() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.peran;
+    }
+
+    function isUserActive() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.aktif == true;
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (isVerified() && userDocExists() && isUserActive() && userRole() == 'admin');
+    }
+
+    function isPetugas() {
+      return isVerified() && userDocExists() && isUserActive() && userRole() == 'petugas';
+    }
+
+    function isKepsek() {
+      return isVerified() && userDocExists() && isUserActive() && userRole() == 'kepala_sekolah';
+    }
+
+    function isStaff() {
+      return isAdmin() || isPetugas() || isKepsek();
+    }
+
+    function isOperator() {
+      return isAdmin() || isPetugas();
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'nama', 'email', 'peran', 'aktif', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'nama', 'email', 'peran', 'aktif', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.peran in ['admin', 'petugas', 'kepala_sekolah', 'pending']
+        && data.aktif is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRoleInvite(data) {
+      return data.keys().hasAll(['email', 'nama', 'peran', 'createdBy', 'createdAt'])
+        && data.keys().hasOnly(['email', 'nama', 'peran', 'createdBy', 'createdAt'])
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 120
+        && data.peran in ['admin', 'petugas', 'kepala_sekolah']
+        && data.createdBy == request.auth.uid
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPengaturanSekolah(data) {
+      return data.keys().hasAll(['namaSekolah', 'alamat', 'telepon', 'email', 'kota', 'namaKepalaSekolah', 'updatedAt'])
+        && data.keys().hasOnly(['namaSekolah', 'alamat', 'telepon', 'email', 'kota', 'namaKepalaSekolah', 'updatedAt'])
+        && data.namaSekolah is string && data.namaSekolah.size() >= 2 && data.namaSekolah.size() <= 160
+        && data.alamat is string && data.alamat.size() <= 300
+        && data.telepon is string && data.telepon.size() <= 40
+        && data.email is string && data.email.size() <= 120
+        && data.kota is string && data.kota.size() >= 1 && data.kota.size() <= 80
+        && data.namaKepalaSekolah is string && data.namaKepalaSekolah.size() <= 120
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTahunAjaran(data) {
+      return data.keys().hasAll(['nama', 'aktif', 'createdAt'])
+        && data.keys().hasOnly(['nama', 'aktif', 'createdAt'])
+        && data.nama is string && data.nama.size() >= 4 && data.nama.size() <= 30
+        && data.aktif is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidKelas(data) {
+      return data.keys().hasAll(['nama', 'tingkat', 'tahunAjaranId', 'createdAt'])
+        && data.keys().hasOnly(['nama', 'tingkat', 'tahunAjaranId', 'createdAt'])
+        && data.nama is string && data.nama.size() >= 2 && data.nama.size() <= 60
+        && data.tingkat in ['10', '11', '12']
+        && isValidId(data.tahunAjaranId)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidTarifSpp(data) {
+      return data.keys().hasAll(['kelasId', 'tahunAjaranId', 'nominal', 'updatedAt'])
+        && data.keys().hasOnly(['kelasId', 'tahunAjaranId', 'nominal', 'updatedAt'])
+        && isValidId(data.kelasId)
+        && isValidId(data.tahunAjaranId)
+        && data.nominal is number && data.nominal >= 0 && data.nominal <= 50000000
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSiswa(data) {
+      return data.keys().hasAll(['nis', 'nama', 'kelasId', 'statusAktif', 'noHpOrtu', 'diskonTipe', 'diskonNilai', 'keteranganDiskon', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['nis', 'nama', 'kelasId', 'statusAktif', 'noHpOrtu', 'diskonTipe', 'diskonNilai', 'keteranganDiskon', 'createdAt', 'updatedAt'])
+        && data.nis is string && data.nis.size() >= 3 && data.nis.size() <= 30
+        && data.nama is string && data.nama.size() >= 2 && data.nama.size() <= 120
+        && isValidId(data.kelasId)
+        && data.statusAktif in ['aktif', 'lulus', 'pindah', 'nonaktif']
+        && data.noHpOrtu is string && data.noHpOrtu.size() <= 30
+        && data.diskonTipe in ['none', 'nominal', 'persen']
+        && data.diskonNilai is number && data.diskonNilai >= 0
+        && (data.diskonTipe != 'persen' || data.diskonNilai <= 100)
+        && data.keteranganDiskon is string && data.keteranganDiskon.size() <= 160
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTagihanSpp(data) {
+      return data.keys().hasAll(['siswaId', 'kelasId', 'tahunAjaranId', 'bulan', 'tahun', 'nominalTarif', 'nominalDiskon', 'nominalTagihan', 'totalTerbayar', 'sisaTagihan', 'status', 'jatuhTempo', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['siswaId', 'kelasId', 'tahunAjaranId', 'bulan', 'tahun', 'nominalTarif', 'nominalDiskon', 'nominalTagihan', 'totalTerbayar', 'sisaTagihan', 'status', 'jatuhTempo', 'createdAt', 'updatedAt'])
+        && isValidId(data.siswaId)
+        && isValidId(data.kelasId)
+        && isValidId(data.tahunAjaranId)
+        && data.bulan is number && data.bulan >= 1 && data.bulan <= 12
+        && data.tahun is number && data.tahun >= 2020 && data.tahun <= 2100
+        && data.nominalTarif is number && data.nominalTarif >= 0
+        && data.nominalDiskon is number && data.nominalDiskon >= 0
+        && data.nominalTagihan is number && data.nominalTagihan >= 0
+        && data.totalTerbayar is number && data.totalTerbayar >= 0
+        && data.sisaTagihan is number && data.sisaTagihan >= 0
+        && data.status in ['belum_bayar', 'sebagian', 'lunas']
+        && data.jatuhTempo is string && data.jatuhTempo.size() <= 20
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPembayaran(data) {
+      return data.keys().hasAll(['noKwitansi', 'siswaId', 'siswaNis', 'siswaNama', 'kelasId', 'kelasNama', 'tanggalBayar', 'metode', 'totalBayar', 'petugasUid', 'petugasNama', 'catatan', 'status', 'alasanBatal', 'dibatalkanOleh', 'dibatalkanPada', 'rincianBulan', 'createdAt'])
+        && data.keys().hasOnly(['noKwitansi', 'siswaId', 'siswaNis', 'siswaNama', 'kelasId', 'kelasNama', 'tanggalBayar', 'metode', 'totalBayar', 'petugasUid', 'petugasNama', 'catatan', 'status', 'alasanBatal', 'dibatalkanOleh', 'dibatalkanPada', 'rincianBulan', 'createdAt'])
+        && data.noKwitansi is string && data.noKwitansi.size() >= 5 && data.noKwitansi.size() <= 60
+        && isValidId(data.siswaId)
+        && data.siswaNis is string && data.siswaNis.size() <= 30
+        && data.siswaNama is string && data.siswaNama.size() <= 120
+        && isValidId(data.kelasId)
+        && data.kelasNama is string && data.kelasNama.size() <= 60
+        && data.tanggalBayar is string && data.tanggalBayar.size() >= 8 && data.tanggalBayar.size() <= 30
+        && data.metode in ['tunai', 'transfer']
+        && data.totalBayar is number && data.totalBayar > 0 && data.totalBayar <= 100000000
+        && data.petugasUid is string && data.petugasUid.size() >= 1 && data.petugasUid.size() <= 128
+        && data.petugasNama is string && data.petugasNama.size() <= 120
+        && data.catatan is string && data.catatan.size() <= 300
+        && data.status in ['sah', 'dibatalkan']
+        && data.alasanBatal is string && data.alasanBatal.size() <= 300
+        && data.dibatalkanOleh is string && data.dibatalkanOleh.size() <= 120
+        && data.dibatalkanPada is string && data.dibatalkanPada.size() <= 40
+        && data.rincianBulan is string && data.rincianBulan.size() <= 500
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPembayaranDetail(data) {
+      return data.keys().hasAll(['pembayaranId', 'tagihanId', 'siswaId', 'bulan', 'tahun', 'nominalDialokasikan', 'status', 'createdAt'])
+        && data.keys().hasOnly(['pembayaranId', 'tagihanId', 'siswaId', 'bulan', 'tahun', 'nominalDialokasikan', 'status', 'createdAt'])
+        && isValidId(data.pembayaranId)
+        && isValidId(data.tagihanId)
+        && isValidId(data.siswaId)
+        && data.bulan is number && data.bulan >= 1 && data.bulan <= 12
+        && data.tahun is number && data.tahun >= 2020 && data.tahun <= 2100
+        && data.nominalDialokasikan is number && data.nominalDialokasikan > 0
+        && data.status in ['sah', 'dibatalkan']
+        && data.createdAt is timestamp;
+    }
+
+    function isValidLogAktivitas(data) {
+      return data.keys().hasAll(['actorUid', 'actorNama', 'actorPeran', 'aksi', 'entitas', 'entitasId', 'ringkasan', 'createdAt'])
+        && data.keys().hasOnly(['actorUid', 'actorNama', 'actorPeran', 'aksi', 'entitas', 'entitasId', 'ringkasan', 'createdAt'])
+        && data.actorUid == request.auth.uid
+        && data.actorNama is string && data.actorNama.size() >= 1 && data.actorNama.size() <= 120
+        && data.actorPeran is string && data.actorPeran.size() >= 1 && data.actorPeran.size() <= 40
+        && data.aksi in ['CREATE', 'UPDATE', 'DELETE', 'CANCEL', 'GENERATE', 'SEED']
+        && data.entitas is string && data.entitas.size() >= 1 && data.entitas.size() <= 60
+        && data.entitasId is string && data.entitasId.size() >= 1 && data.entitasId.size() <= 128
+        && data.ringkasan is string && data.ringkasan.size() >= 1 && data.ringkasan.size() <= 400
+        && data.createdAt is timestamp;
+    }
+
+    // 4. Collection Rules
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId)
+        && isVerified()
+        && request.auth.uid == userId
+        && isValidUser(incoming())
+        && incoming().uid == userId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (isBootstrappedAdmin() && incoming().peran == 'admin' && incoming().aktif == true) ||
+          (hasValidRoleInvite(incoming().peran) && incoming().aktif == true) ||
+          (incoming().peran == 'pending' && incoming().aktif == true)
+        );
+      allow update: if isValidId(userId)
+        && isVerified()
+        && isValidUser(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['nama', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    match /role_invites/{inviteId} {
+      allow get: if isValidId(inviteId) && isVerified();
+      allow list: if isAdmin();
+      allow create: if isValidId(inviteId) && isAdmin() && isValidRoleInvite(incoming()) && incoming().createdAt == request.time;
+      allow update: if isValidId(inviteId) && isAdmin() && isValidRoleInvite(incoming()) && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(inviteId) && isAdmin();
+    }
+
+    match /pengaturan_sekolah/{settingId} {
+      allow get: if isValidId(settingId) && isStaff();
+      allow list: if isStaff();
+      allow create: if isValidId(settingId) && isAdmin() && isValidPengaturanSekolah(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isValidId(settingId) && isAdmin() && isValidPengaturanSekolah(incoming()) && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /tahun_ajaran/{tahunAjaranId} {
+      allow get: if isValidId(tahunAjaranId) && isStaff();
+      allow list: if isStaff();
+      allow create: if isValidId(tahunAjaranId) && isAdmin() && isValidTahunAjaran(incoming()) && incoming().createdAt == request.time;
+      allow update: if isValidId(tahunAjaranId) && isAdmin() && isValidTahunAjaran(incoming()) && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(tahunAjaranId) && isAdmin();
+    }
+
+    match /kelas/{kelasId} {
+      allow get: if isValidId(kelasId) && isStaff();
+      allow list: if isStaff();
+      allow create: if isValidId(kelasId) && isAdmin() && isValidKelas(incoming()) && incoming().createdAt == request.time;
+      allow update: if isValidId(kelasId) && isAdmin() && isValidKelas(incoming()) && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(kelasId) && isAdmin();
+    }
+
+    match /tarif_spp/{tarifId} {
+      allow get: if isValidId(tarifId) && isStaff();
+      allow list: if isStaff();
+      allow create: if isValidId(tarifId) && isAdmin() && isValidTarifSpp(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isValidId(tarifId) && isAdmin() && isValidTarifSpp(incoming()) && incoming().updatedAt == request.time;
+      allow delete: if isValidId(tarifId) && isAdmin();
+    }
+
+    match /siswa/{siswaId} {
+      allow get: if isValidId(siswaId) && isStaff();
+      allow list: if isStaff();
+      allow create: if isValidId(siswaId) && isAdmin() && isValidSiswa(incoming()) && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(siswaId) && isAdmin() && isValidSiswa(incoming()) && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isValidId(siswaId) && isAdmin();
+    }
+
+    match /tagihan_spp/{tagihanId} {
+      allow get: if isValidId(tagihanId) && isStaff();
+      allow list: if isStaff();
+      allow create: if isValidId(tagihanId) && isOperator() && isValidTagihanSpp(incoming()) && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(tagihanId)
+        && isOperator()
+        && isValidTagihanSpp(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['totalTerbayar', 'sisaTagihan', 'status', 'updatedAt'])
+        );
+      allow delete: if isValidId(tagihanId) && isAdmin();
+    }
+
+    match /pembayaran/{pembayaranId} {
+      allow get: if isValidId(pembayaranId) && isStaff();
+      allow list: if isStaff();
+      allow create: if isValidId(pembayaranId)
+        && isOperator()
+        && isValidPembayaran(incoming())
+        && incoming().petugasUid == request.auth.uid
+        && incoming().status == 'sah'
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(pembayaranId)
+        && isOperator()
+        && isValidPembayaran(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().noKwitansi == existing().noKwitansi
+        && incoming().siswaId == existing().siswaId
+        && incoming().totalBayar == existing().totalBayar
+        && existing().status == 'sah'
+        && incoming().status == 'dibatalkan'
+        && incoming().alasanBatal.size() >= 5
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'alasanBatal', 'dibatalkanOleh', 'dibatalkanPada']);
+      allow delete: if false;
+    }
+
+    match /pembayaran_detail/{detailId} {
+      allow get: if isValidId(detailId) && isStaff();
+      allow list: if isStaff();
+      allow create: if isValidId(detailId)
+        && isOperator()
+        && isValidPembayaranDetail(incoming())
+        && incoming().status == 'sah'
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(detailId)
+        && isOperator()
+        && isValidPembayaranDetail(incoming())
+        && incoming().createdAt == existing().createdAt
+        && existing().status == 'sah'
+        && incoming().status == 'dibatalkan'
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+      allow delete: if false;
+    }
+
+    match /log_aktivitas/{logId} {
+      allow get: if isValidId(logId) && (isAdmin() || isKepsek());
+      allow list: if isAdmin() || isKepsek();
+      allow create: if isValidId(logId)
+        && isStaff()
+        && isValidLogAktivitas(incoming())
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}

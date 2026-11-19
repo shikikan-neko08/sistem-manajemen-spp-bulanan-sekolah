@@ -1,0 +1,6 @@
+{
+  "name": "SIP-SPP SMA — Sistem Pendataan SPP Sekolah",
+  "description": "Sistem administrasi pendataan, penagihan, pembayaran, kwitansi, tunggakan, dan laporan SPP bulanan untuk sekolah SMA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

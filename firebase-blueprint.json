@@ -1,0 +1,226 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Pengguna sistem SPP dengan peran Admin, Petugas/Bendahara, atau Kepala Sekolah.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "nama": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "peran": { "type": "string", "enum": ["admin", "petugas", "kepala_sekolah", "pending"] },
+        "aktif": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "nama", "email", "peran", "aktif", "createdAt", "updatedAt"]
+    },
+    "RoleInvite": {
+      "title": "RoleInvite",
+      "description": "Undangan penetapan peran berdasarkan email sebelum pengguna login pertama kali.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "nama": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "peran": { "type": "string", "enum": ["admin", "petugas", "kepala_sekolah"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "nama", "peran", "createdBy", "createdAt"]
+    },
+    "PengaturanSekolah": {
+      "title": "PengaturanSekolah",
+      "description": "Profil identitas sekolah untuk kop kwitansi dan laporan.",
+      "type": "object",
+      "properties": {
+        "namaSekolah": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "alamat": { "type": "string", "maxLength": 300 },
+        "telepon": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 120 },
+        "kota": { "type": "string", "maxLength": 80 },
+        "namaKepalaSekolah": { "type": "string", "maxLength": 120 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["namaSekolah", "alamat", "kota", "updatedAt"]
+    },
+    "TahunAjaran": {
+      "title": "TahunAjaran",
+      "description": "Master tahun ajaran sekolah.",
+      "type": "object",
+      "properties": {
+        "nama": { "type": "string", "minLength": 4, "maxLength": 30 },
+        "aktif": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nama", "aktif", "createdAt"]
+    },
+    "Kelas": {
+      "title": "Kelas",
+      "description": "Master kelas SMA beserta tingkat dan tahun ajaran.",
+      "type": "object",
+      "properties": {
+        "nama": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "tingkat": { "type": "string", "enum": ["10", "11", "12"] },
+        "tahunAjaranId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nama", "tingkat", "tahunAjaranId", "createdAt"]
+    },
+    "TarifSpp": {
+      "title": "TarifSpp",
+      "description": "Tarif SPP bulanan per kelas dan tahun ajaran.",
+      "type": "object",
+      "properties": {
+        "kelasId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tahunAjaranId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "nominal": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["kelasId", "tahunAjaranId", "nominal", "updatedAt"]
+    },
+    "Siswa": {
+      "title": "Siswa",
+      "description": "Data induk siswa SMA beserta status aktif, kontak orang tua, dan diskon/beasiswa.",
+      "type": "object",
+      "properties": {
+        "nis": { "type": "string", "minLength": 3, "maxLength": 30 },
+        "nama": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "kelasId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "statusAktif": { "type": "string", "enum": ["aktif", "lulus", "pindah", "nonaktif"] },
+        "noHpOrtu": { "type": "string", "maxLength": 30 },
+        "diskonTipe": { "type": "string", "enum": ["none", "nominal", "persen"] },
+        "diskonNilai": { "type": "number" },
+        "keteranganDiskon": { "type": "string", "maxLength": 160 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nis", "nama", "kelasId", "statusAktif", "noHpOrtu", "diskonTipe", "diskonNilai", "createdAt", "updatedAt"]
+    },
+    "TagihanSpp": {
+      "title": "TagihanSpp",
+      "description": "Tagihan SPP bulanan per siswa dengan ID deterministik untuk mencegah duplikasi.",
+      "type": "object",
+      "properties": {
+        "siswaId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "kelasId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tahunAjaranId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "bulan": { "type": "number" },
+        "tahun": { "type": "number" },
+        "nominalTarif": { "type": "number" },
+        "nominalDiskon": { "type": "number" },
+        "nominalTagihan": { "type": "number" },
+        "totalTerbayar": { "type": "number" },
+        "sisaTagihan": { "type": "number" },
+        "status": { "type": "string", "enum": ["belum_bayar", "sebagian", "lunas"] },
+        "jatuhTempo": { "type": "string", "maxLength": 20 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["siswaId", "kelasId", "tahunAjaranId", "bulan", "tahun", "nominalTarif", "nominalDiskon", "nominalTagihan", "totalTerbayar", "sisaTagihan", "status", "jatuhTempo", "createdAt", "updatedAt"]
+    },
+    "Pembayaran": {
+      "title": "Pembayaran",
+      "description": "Transaksi pembayaran SPP (tunai/transfer) dengan nomor kwitansi unik. Tidak boleh dihapus; koreksi lewat pembatalan.",
+      "type": "object",
+      "properties": {
+        "noKwitansi": { "type": "string", "minLength": 5, "maxLength": 60 },
+        "siswaId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "siswaNis": { "type": "string", "maxLength": 30 },
+        "siswaNama": { "type": "string", "maxLength": 120 },
+        "kelasNama": { "type": "string", "maxLength": 60 },
+        "kelasId": { "type": "string", "maxLength": 128 },
+        "tanggalBayar": { "type": "string", "maxLength": 30 },
+        "metode": { "type": "string", "enum": ["tunai", "transfer"] },
+        "totalBayar": { "type": "number" },
+        "petugasUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "petugasNama": { "type": "string", "maxLength": 120 },
+        "catatan": { "type": "string", "maxLength": 300 },
+        "status": { "type": "string", "enum": ["sah", "dibatalkan"] },
+        "alasanBatal": { "type": "string", "maxLength": 300 },
+        "dibatalkanOleh": { "type": "string", "maxLength": 120 },
+        "dibatalkanPada": { "type": "string", "maxLength": 40 },
+        "rincianBulan": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["noKwitansi", "siswaId", "tanggalBayar", "metode", "totalBayar", "petugasUid", "petugasNama", "status", "createdAt"]
+    },
+    "PembayaranDetail": {
+      "title": "PembayaranDetail",
+      "description": "Detail alokasi pembayaran ke satu atau beberapa tagihan bulanan (relasi N:M).",
+      "type": "object",
+      "properties": {
+        "pembayaranId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tagihanId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "siswaId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "bulan": { "type": "number" },
+        "tahun": { "type": "number" },
+        "nominalDialokasikan": { "type": "number" },
+        "status": { "type": "string", "enum": ["sah", "dibatalkan"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["pembayaranId", "tagihanId", "siswaId", "bulan", "tahun", "nominalDialokasikan", "status", "createdAt"]
+    },
+    "LogAktivitas": {
+      "title": "LogAktivitas",
+      "description": "Audit trail pencatatan perubahan, penghapusan, generate tagihan, dan pembatalan pembayaran.",
+      "type": "object",
+      "properties": {
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "actorNama": { "type": "string", "maxLength": 120 },
+        "actorPeran": { "type": "string", "maxLength": 40 },
+        "aksi": { "type": "string", "enum": ["CREATE", "UPDATE", "DELETE", "CANCEL", "GENERATE", "SEED"] },
+        "entitas": { "type": "string", "maxLength": 60 },
+        "entitasId": { "type": "string", "maxLength": 128 },
+        "ringkasan": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorUid", "actorNama", "actorPeran", "aksi", "entitas", "entitasId", "ringkasan", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Profil akun pengguna dan perannya."
+    },
+    "/role_invites/{inviteId}": {
+      "schema": { "$ref": "#/entities/RoleInvite" },
+      "description": "Daftar email yang diberi peran otomatis saat login pertama."
+    },
+    "/pengaturan_sekolah/{settingId}": {
+      "schema": { "$ref": "#/entities/PengaturanSekolah" },
+      "description": "Pengaturan profil sekolah."
+    },
+    "/tahun_ajaran/{tahunAjaranId}": {
+      "schema": { "$ref": "#/entities/TahunAjaran" },
+      "description": "Daftar tahun ajaran."
+    },
+    "/kelas/{kelasId}": {
+      "schema": { "$ref": "#/entities/Kelas" },
+      "description": "Daftar kelas SMA."
+    },
+    "/tarif_spp/{tarifId}": {
+      "schema": { "$ref": "#/entities/TarifSpp" },
+      "description": "Tarif SPP per kelas dan tahun ajaran."
+    },
+    "/siswa/{siswaId}": {
+      "schema": { "$ref": "#/entities/Siswa" },
+      "description": "Master data siswa dan beasiswa/diskon."
+    },
+    "/tagihan_spp/{tagihanId}": {
+      "schema": { "$ref": "#/entities/TagihanSpp" },
+      "description": "Tagihan SPP bulanan per siswa."
+    },
+    "/pembayaran/{pembayaranId}": {
+      "schema": { "$ref": "#/entities/Pembayaran" },
+      "description": "Header transaksi pembayaran & kwitansi."
+    },
+    "/pembayaran_detail/{detailId}": {
+      "schema": { "$ref": "#/entities/PembayaranDetail" },
+      "description": "Detail alokasi pembayaran ke tagihan bulanan."
+    },
+    "/log_aktivitas/{logId}": {
+      "schema": { "$ref": "#/entities/LogAktivitas" },
+      "description": "Log aktivitas perubahan data."
+    }
+  }
+}
