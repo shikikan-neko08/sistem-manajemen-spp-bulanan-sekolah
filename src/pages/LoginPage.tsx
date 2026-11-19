@@ -11,8 +11,10 @@ export function LoginPage() {
     needsEmailVerification,
     authError,
     authNotice,
+    popupBlockedHint,
     clearAuthMessages,
     loginGoogle,
+    loginGoogleRedirect,
     loginEmail,
     registerEmail,
     resetPasswordEmail,
@@ -21,6 +23,7 @@ export function LoginPage() {
     logout,
     loading,
   } = useAuth();
+  const isStandalone = typeof window !== 'undefined' && window.self === window.top;
 
   const [mode, setMode] = useState<AuthMode>('login');
   const [nama, setNama] = useState('');
@@ -303,6 +306,24 @@ export function LoginPage() {
         >
           Masuk dengan Akun Google
         </button>
+
+        {popupBlockedHint && isStandalone && (
+          <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-2 text-xs text-amber-900">
+            <p className="leading-relaxed">
+              Jika pop-up tetap diblokir oleh ekstensi/browser, Anda dapat mengizinkan pop-up di
+              pengaturan situs browser, masuk menggunakan <strong>Email &amp; Kata Sandi</strong> di
+              atas, atau mencoba mode redirect (memerlukan konfigurasi domain auth same-origin).
+            </p>
+            <button
+              type="button"
+              disabled={loading || busy}
+              onClick={() => void loginGoogleRedirect()}
+              className="w-full px-3 py-2 text-xs font-semibold text-amber-900 bg-white border border-amber-300 hover:bg-amber-100/60 rounded-lg transition-colors"
+            >
+              Coba Login Google via Redirect (Cadangan)
+            </button>
+          </div>
+        )}
 
         <div className="border-t border-slate-200 pt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs text-slate-600">
           <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80">

@@ -3,8 +3,13 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const runtimeFirebaseConfig = {
+  ...firebaseConfig,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+};
+
+const app = initializeApp(runtimeFirebaseConfig);
+export const db = getFirestore(app, runtimeFirebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleAuthProvider = new GoogleAuthProvider();
 

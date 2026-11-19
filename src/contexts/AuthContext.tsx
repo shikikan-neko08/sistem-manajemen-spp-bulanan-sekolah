@@ -34,8 +34,10 @@ interface AuthContextValue {
   needsEmailVerification: boolean;
   authError: string | null;
   authNotice: string | null;
+  popupBlockedHint: boolean;
   clearAuthMessages: () => void;
   loginGoogle: () => Promise<void>;
+  loginGoogleRedirect: () => Promise<void>;
   loginEmail: (email: string, password: string) => Promise<void>;
   registerEmail: (nama: string, email: string, password: string) => Promise<void>;
   resetPasswordEmail: (email: string) => Promise<void>;
@@ -47,6 +49,8 @@ interface AuthContextValue {
   canTransact: boolean;
   canViewAudit: boolean;
 }
+
+const REDIRECT_PENDING_KEY = 'spp_google_redirect_pending';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -70,7 +74,7 @@ function mapFirebaseAuthError(err: unknown): string {
     case 'auth/popup-closed-by-user':
       return 'Jendela login Google ditutup sebelum selesai.';
     case 'auth/popup-blocked':
-      return 'Popup login diblokir oleh browser. Izinkan popup untuk situs ini di pengaturan browser, atau gunakan login Email & Kata Sandi.';
+      return 'Popup login Google diblokir oleh browser atau ekstensi (ad-blocker). Izinkan pop-up untuk situs ini di bilah alamat browser, atau gunakan login Email & Kata Sandi di atas.';
     case 'auth/unauthorized-domain':
       return 'Domain aplikasi belum diizinkan di Firebase Authentication. Tambahkan domain Vercel Anda ke Firebase Console → Authentication → Settings → Authorized domains.';
     default:
@@ -86,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [needsEmailVerification, setNeedsEmailVerification] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [popupBlockedHint, setPopupBlockedHint] = useState(false);
 
   const syncOrCreateUserProfile = async (fbUser: FirebaseUser): Promise<AppUser> => {
     const userPath = `users/${fbUser.uid}`;
@@ -131,42 +136,88 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    void getRedirectResult(auth).catch((err) => {
-      setAuthError(mapFirebaseAuthError(err));
-    });
+    let unsub: (() => void) | undefined;
+    let cancelled = false;
 
-    const unsub = onAuthStateChanged(auth, async (fbUser) => {
-      setLoading(true);
-      setAuthError(null);
-      if (!fbUser) {
-        setFirebaseUser(null);
-        setProfile(null);
-        setPreviewRole(null);
-        setNeedsEmailVerification(false);
-        setLoading(false);
-        return;
-      }
+    const initAuth = async () => {
+      let redirectErrorMsg: string | null = null;
+      let redirectBouncedEmpty = false;
+      const hadPendingRedirect =
+        typeof window !== 'undefined' &&
+        window.sessionStorage.getItem(REDIRECT_PENDING_KEY) === '1';
 
-      setFirebaseUser(fbUser);
-      if (!fbUser.emailVerified) {
-        setProfile(null);
-        setNeedsEmailVerification(true);
-        setLoading(false);
-        return;
-      }
-
-      setNeedsEmailVerification(false);
       try {
-        const prof = await syncOrCreateUserProfile(fbUser);
-        setProfile(prof);
+        const result = await getRedirectResult(auth);
+        if (hadPendingRedirect) {
+          window.sessionStorage.removeItem(REDIRECT_PENDING_KEY);
+          if (!result?.user && !auth.currentUser) {
+            redirectBouncedEmpty = true;
+            redirectErrorMsg =
+              'Login Google via redirect kembali tanpa sesi aktif karena browser memblokir penyimpanan lintas domain. Izinkan pop-up untuk situs ini lalu klik "Masuk dengan Akun Google", atau masuk menggunakan Email & Kata Sandi.';
+          }
+        }
       } catch (err) {
-        setAuthError(err instanceof Error ? err.message : 'Gagal memuat profil pengguna.');
-      } finally {
-        setLoading(false);
+        if (hadPendingRedirect && typeof window !== 'undefined') {
+          window.sessionStorage.removeItem(REDIRECT_PENDING_KEY);
+        }
+        redirectErrorMsg = mapFirebaseAuthError(err);
       }
-    });
 
-    return () => unsub();
+      if (cancelled) return;
+
+      if (redirectErrorMsg) {
+        setAuthError(redirectErrorMsg);
+        if (redirectBouncedEmpty) {
+          setPopupBlockedHint(true);
+        }
+      }
+
+      unsub = onAuthStateChanged(auth, async (fbUser) => {
+        if (cancelled) return;
+        setLoading(true);
+        if (!fbUser) {
+          setFirebaseUser(null);
+          setProfile(null);
+          setPreviewRole(null);
+          setNeedsEmailVerification(false);
+          setLoading(false);
+          return;
+        }
+
+        setAuthError(null);
+        setPopupBlockedHint(false);
+        setFirebaseUser(fbUser);
+        if (!fbUser.emailVerified) {
+          setProfile(null);
+          setNeedsEmailVerification(true);
+          setLoading(false);
+          return;
+        }
+
+        setNeedsEmailVerification(false);
+        try {
+          const prof = await syncOrCreateUserProfile(fbUser);
+          if (!cancelled) {
+            setProfile(prof);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setAuthError(err instanceof Error ? err.message : 'Gagal memuat profil pengguna.');
+          }
+        } finally {
+          if (!cancelled) {
+            setLoading(false);
+          }
+        }
+      });
+    };
+
+    void initAuth();
+
+    return () => {
+      cancelled = true;
+      if (unsub) unsub();
+    };
   }, []);
 
   const refreshProfile = async () => {
@@ -180,23 +231,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginGoogle = async () => {
     setAuthError(null);
     setAuthNotice(null);
+    setPopupBlockedHint(false);
     try {
       await signInWithPopup(auth, googleAuthProvider);
     } catch (err) {
       const code = (err as { code?: string })?.code || '';
-      const isStandalone = typeof window !== 'undefined' && window.self === window.top;
       if (
-        isStandalone &&
-        (code === 'auth/popup-blocked' ||
-          code === 'auth/operation-not-supported-in-this-environment')
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment'
       ) {
-        try {
-          await signInWithRedirect(auth, googleAuthProvider);
-          return;
-        } catch (redirectErr) {
-          setAuthError(mapFirebaseAuthError(redirectErr));
-          return;
-        }
+        setPopupBlockedHint(true);
+      }
+      setAuthError(mapFirebaseAuthError(err));
+    }
+  };
+
+  const loginGoogleRedirect = async () => {
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem(REDIRECT_PENDING_KEY, '1');
+      }
+      await signInWithRedirect(auth, googleAuthProvider);
+    } catch (err) {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.removeItem(REDIRECT_PENDING_KEY);
       }
       setAuthError(mapFirebaseAuthError(err));
     }
@@ -316,11 +376,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         needsEmailVerification,
         authError,
         authNotice,
+        popupBlockedHint,
         clearAuthMessages: () => {
           setAuthError(null);
           setAuthNotice(null);
+          setPopupBlockedHint(false);
         },
         loginGoogle,
+        loginGoogleRedirect,
         loginEmail,
         registerEmail,
         resetPasswordEmail,
