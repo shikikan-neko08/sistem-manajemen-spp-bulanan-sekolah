@@ -1,11 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onAuthStateChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updateProfile,
   type User as FirebaseUser,
@@ -67,6 +69,10 @@ function mapFirebaseAuthError(err: unknown): string {
       return 'Terlalu banyak percobaan login. Silakan tunggu beberapa menit lalu coba lagi.';
     case 'auth/popup-closed-by-user':
       return 'Jendela login Google ditutup sebelum selesai.';
+    case 'auth/popup-blocked':
+      return 'Popup login diblokir oleh browser. Izinkan popup untuk situs ini di pengaturan browser, atau gunakan login Email & Kata Sandi.';
+    case 'auth/unauthorized-domain':
+      return 'Domain aplikasi belum diizinkan di Firebase Authentication. Tambahkan domain Vercel Anda ke Firebase Console → Authentication → Settings → Authorized domains.';
     default:
       return err instanceof Error ? err.message : 'Autentikasi gagal. Silakan coba lagi.';
   }
@@ -125,6 +131,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    void getRedirectResult(auth).catch((err) => {
+      setAuthError(mapFirebaseAuthError(err));
+    });
+
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       setLoading(true);
       setAuthError(null);
@@ -173,6 +183,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await signInWithPopup(auth, googleAuthProvider);
     } catch (err) {
+      const code = (err as { code?: string })?.code || '';
+      const isStandalone = typeof window !== 'undefined' && window.self === window.top;
+      if (
+        isStandalone &&
+        (code === 'auth/popup-blocked' ||
+          code === 'auth/operation-not-supported-in-this-environment')
+      ) {
+        try {
+          await signInWithRedirect(auth, googleAuthProvider);
+          return;
+        } catch (redirectErr) {
+          setAuthError(mapFirebaseAuthError(redirectErr));
+          return;
+        }
+      }
       setAuthError(mapFirebaseAuthError(err));
     }
   };
