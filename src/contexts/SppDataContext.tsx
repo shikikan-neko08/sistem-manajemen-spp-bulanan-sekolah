@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase.ts';
+import { DEFAULT_PENGATURAN_SISTEM } from '../lib/format.ts';
 import { generateTagihanBulanan } from '../services/tagihanService.ts';
 import type {
   AppUser,
@@ -9,6 +10,7 @@ import type {
   Pembayaran,
   PembayaranOrtu,
   PengaturanSekolah,
+  PengaturanSistem,
   RoleInvite,
   Siswa,
   TagihanSpp,
@@ -17,8 +19,20 @@ import type {
 } from '../types/spp.ts';
 import { useAuth } from './AuthContext.tsx';
 
+export interface EffectivePermissions {
+  canViewMaster: boolean;
+  canCancelPayment: boolean;
+  canGenerateTagihan: boolean;
+  canViewAudit: boolean;
+  canManageSettings: boolean;
+  ortuBolehCicilan: boolean;
+  portalOrtuAktif: boolean;
+}
+
 interface SppDataContextValue {
   sekolah: PengaturanSekolah | null;
+  pengaturanSistem: PengaturanSistem;
+  permissions: EffectivePermissions;
   tahunAjaranList: TahunAjaran[];
   tahunAjaranAktif: TahunAjaran | null;
   kelasList: Kelas[];
@@ -50,7 +64,7 @@ function tsToMillis(ts: unknown): number {
 }
 
 export function SppDataProvider({ children }: { children: React.ReactNode }) {
-  const { profile, firebaseUser } = useAuth();
+  const { profile, effectiveRole, firebaseUser } = useAuth();
   const isActiveVerified =
     Boolean(firebaseUser) &&
     Boolean(profile) &&
@@ -63,6 +77,9 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
   const parentEmail = (firebaseUser?.email || profile?.email || '').trim().toLowerCase();
 
   const [sekolah, setSekolah] = useState<PengaturanSekolah | null>(null);
+  const [pengaturanSistem, setPengaturanSistem] = useState<PengaturanSistem>(
+    DEFAULT_PENGATURAN_SISTEM
+  );
   const [tahunAjaranList, setTahunAjaranList] = useState<TahunAjaran[]>([]);
   const [kelasList, setKelasList] = useState<Kelas[]>([]);
   const [tarifList, setTarifList] = useState<TarifSpp[]>([]);
@@ -81,6 +98,7 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isActiveVerified) {
       setSekolah(null);
+      setPengaturanSistem(DEFAULT_PENGATURAN_SISTEM);
       setTahunAjaranList([]);
       setKelasList([]);
       setTarifList([]);
@@ -97,7 +115,7 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
 
     setLoadingData(true);
     let loadedFlags = 0;
-    const expectedFlags = isParentAccount ? 5 : 6;
+    const expectedFlags = isParentAccount ? 6 : 7;
     const markLoaded = () => {
       loadedFlags += 1;
       if (loadedFlags >= expectedFlags) {
@@ -116,6 +134,30 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
           markLoaded();
         },
         (err) => handleFirestoreError(err, OperationType.LIST, 'pengaturan_sekolah')
+      )
+    );
+
+    unsubs.push(
+      onSnapshot(
+        collection(db, 'pengaturan_sistem'),
+        (snap) => {
+          const target = snap.docs.find((d) => d.id === 'default') || snap.docs[0];
+          if (target) {
+            const raw = target.data() as Partial<Omit<PengaturanSistem, 'id'>>;
+            setPengaturanSistem({
+              ...DEFAULT_PENGATURAN_SISTEM,
+              ...raw,
+              id: target.id,
+              midtransEnabledPayments: Array.isArray(raw.midtransEnabledPayments)
+                ? raw.midtransEnabledPayments
+                : DEFAULT_PENGATURAN_SISTEM.midtransEnabledPayments,
+            });
+          } else {
+            setPengaturanSistem(DEFAULT_PENGATURAN_SISTEM);
+          }
+          markLoaded();
+        },
+        (err) => handleFirestoreError(err, OperationType.LIST, 'pengaturan_sistem')
       )
     );
 
@@ -317,11 +359,75 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
     [tahunAjaranList]
   );
 
-  // Otomatis generate tagihan bulan berjalan untuk siswa aktif jika belum dibuat
+  const permissions = useMemo<EffectivePermissions>(() => {
+    const custom = profile?.hakAksesKhusus;
+    const isRealMatch = profile?.peran === effectiveRole;
+
+    if (effectiveRole === 'admin') {
+      return {
+        canViewMaster: true,
+        canCancelPayment: true,
+        canGenerateTagihan: true,
+        canViewAudit: true,
+        canManageSettings: true,
+        ortuBolehCicilan: pengaturanSistem.ortuBolehCicilan,
+        portalOrtuAktif: pengaturanSistem.portalOrtuAktif,
+      };
+    }
+
+    if (effectiveRole === 'petugas') {
+      return {
+        canViewMaster:
+          isRealMatch && typeof custom?.bolehLihatMaster === 'boolean'
+            ? custom.bolehLihatMaster
+            : pengaturanSistem.petugasBolehLihatMaster,
+        canCancelPayment:
+          isRealMatch && typeof custom?.bolehBatalkanPembayaran === 'boolean'
+            ? custom.bolehBatalkanPembayaran
+            : pengaturanSistem.petugasBolehBatalkanPembayaran,
+        canGenerateTagihan:
+          isRealMatch && typeof custom?.bolehGenerateTagihan === 'boolean'
+            ? custom.bolehGenerateTagihan
+            : pengaturanSistem.petugasBolehGenerateTagihan,
+        canViewAudit: false,
+        canManageSettings: false,
+        ortuBolehCicilan: pengaturanSistem.ortuBolehCicilan,
+        portalOrtuAktif: pengaturanSistem.portalOrtuAktif,
+      };
+    }
+
+    if (effectiveRole === 'kepala_sekolah') {
+      return {
+        canViewMaster: false,
+        canCancelPayment: false,
+        canGenerateTagihan: false,
+        canViewAudit:
+          isRealMatch && typeof custom?.bolehLihatAudit === 'boolean'
+            ? custom.bolehLihatAudit
+            : pengaturanSistem.kepsekBolehLihatAudit,
+        canManageSettings: false,
+        ortuBolehCicilan: pengaturanSistem.ortuBolehCicilan,
+        portalOrtuAktif: pengaturanSistem.portalOrtuAktif,
+      };
+    }
+
+    return {
+      canViewMaster: false,
+      canCancelPayment: false,
+      canGenerateTagihan: false,
+      canViewAudit: false,
+      canManageSettings: false,
+      ortuBolehCicilan: pengaturanSistem.ortuBolehCicilan,
+      portalOrtuAktif: pengaturanSistem.portalOrtuAktif,
+    };
+  }, [profile, effectiveRole, pengaturanSistem]);
+
+  // Otomatis generate tagihan bulan berjalan untuk siswa aktif jika diaktifkan
   useEffect(() => {
     if (
       loadingData ||
       autoGenAttemptedRef.current ||
+      !pengaturanSistem.autoGenerateTagihan ||
       !profile ||
       (profile.peran !== 'admin' && profile.peran !== 'petugas') ||
       !tahunAjaranAktif ||
@@ -352,6 +458,7 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
       kelasList,
       tarifList,
       existingTagihan: tagihanList,
+      tanggalJatuhTempo: pengaturanSistem.tanggalJatuhTempo,
       actor: { uid: profile.uid, nama: profile.nama, peran: profile.peran },
     }).then((res) => {
       if (res.createdCount > 0) {
@@ -360,12 +467,24 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
         );
       }
     });
-  }, [loadingData, profile, tahunAjaranAktif, siswaList, kelasList, tarifList, tagihanList]);
+  }, [
+    loadingData,
+    pengaturanSistem.autoGenerateTagihan,
+    pengaturanSistem.tanggalJatuhTempo,
+    profile,
+    tahunAjaranAktif,
+    siswaList,
+    kelasList,
+    tarifList,
+    tagihanList,
+  ]);
 
   return (
     <SppDataContext.Provider
       value={{
         sekolah,
+        pengaturanSistem,
+        permissions,
         tahunAjaranList,
         tahunAjaranAktif,
         kelasList,

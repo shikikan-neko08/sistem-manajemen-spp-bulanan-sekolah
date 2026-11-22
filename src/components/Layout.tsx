@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Settings,
   X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.tsx';
@@ -37,12 +38,11 @@ export function Layout({ activeRoute, onNavigate, children }: Props) {
     previewRole,
     setPreviewRole,
     logout,
-    canManageMaster,
     canTransact,
-    canViewAudit,
   } = useAuth();
   const {
     sekolah,
+    permissions,
     tahunAjaranAktif,
     pembayaranOrtuList,
     autoGenerateNotice,
@@ -63,7 +63,7 @@ export function Layout({ activeRoute, onNavigate, children }: Props) {
             id: 'master',
             label: 'Data Master',
             icon: BookOpen,
-            visible: canManageMaster || effectiveRole === 'petugas',
+            visible: permissions.canViewMaster,
           },
           { id: 'tagihan', label: 'Tagihan Bulanan', icon: ClipboardList, visible: canTransact },
           {
@@ -74,7 +74,13 @@ export function Layout({ activeRoute, onNavigate, children }: Props) {
           },
           { id: 'tunggakan', label: 'Daftar Tunggakan', icon: AlertCircle, visible: true },
           { id: 'laporan', label: 'Laporan Keuangan', icon: FileSpreadsheet, visible: true },
-          { id: 'audit', label: 'Log Aktivitas', icon: History, visible: canViewAudit },
+          { id: 'audit', label: 'Log Aktivitas', icon: History, visible: permissions.canViewAudit },
+          {
+            id: 'settings',
+            label: 'Pengaturan',
+            icon: Settings,
+            visible: effectiveRole === 'admin',
+          },
         ];
 
   const activeTitle =
@@ -150,6 +156,8 @@ export function Layout({ activeRoute, onNavigate, children }: Props) {
                 if (val === 'orang_tua') {
                   onNavigate('portal_ortu');
                 } else if (activeRoute === 'portal_ortu') {
+                  onNavigate('dashboard');
+                } else if (val !== 'admin' && activeRoute === 'settings') {
                   onNavigate('dashboard');
                 } else if (
                   val === 'kepala_sekolah' &&

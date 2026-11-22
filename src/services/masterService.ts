@@ -11,14 +11,16 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase.ts';
-import { emailToKey, sanitizeId } from '../lib/format.ts';
+import { BOOTSTRAPPED_ADMIN_EMAIL, db, handleFirestoreError, OperationType } from '../lib/firebase.ts';
+import { DEFAULT_PENGATURAN_SISTEM, emailToKey, sanitizeId } from '../lib/format.ts';
 import type {
   ActiveRole,
   AppUser,
   DiskonTipe,
+  HakAksesKhusus,
   Kelas,
   PengaturanSekolah,
+  PengaturanSistem,
   Siswa,
   StatusSiswa,
   TahunAjaran,
@@ -32,20 +34,101 @@ export async function simpanPengaturanSekolah(
   actor: AuditActor
 ): Promise<void> {
   const path = 'pengaturan_sekolah/default';
+  const cleanNama = data.namaSekolah.trim().slice(0, 160);
+  const cleanKota = data.kota.trim().slice(0, 80);
+  if (cleanNama.length < 2) throw new Error('Nama sekolah minimal 2 karakter.');
+  if (cleanKota.length < 1) throw new Error('Kota wajib diisi.');
+  const cleanPrefixVa = (data.prefixVaSiswa || '88102').replace(/[^0-9]/g, '').slice(0, 12);
+
   try {
     await setDoc(doc(db, 'pengaturan_sekolah', 'default'), {
-      namaSekolah: data.namaSekolah.trim().slice(0, 160),
+      namaSekolah: cleanNama,
+      npsn: (data.npsn || '').trim().slice(0, 30),
       alamat: data.alamat.trim().slice(0, 300),
       telepon: data.telepon.trim().slice(0, 40),
       email: data.email.trim().slice(0, 120),
-      kota: data.kota.trim().slice(0, 80),
+      kota: cleanKota,
       namaKepalaSekolah: data.namaKepalaSekolah.trim().slice(0, 120),
+      nipKepalaSekolah: (data.nipKepalaSekolah || '').trim().slice(0, 40),
       namaBank: (data.namaBank || '').trim().slice(0, 80),
       noRekening: (data.noRekening || '').trim().slice(0, 60),
       atasNamaRekening: (data.atasNamaRekening || '').trim().slice(0, 120),
+      prefixVaSiswa: cleanPrefixVa,
       updatedAt: serverTimestamp(),
     });
-    await catatLog(actor, 'UPDATE', 'pengaturan_sekolah', 'default', `Memperbarui profil & rekening sekolah: ${data.namaSekolah}`);
+    await catatLog(actor, 'UPDATE', 'pengaturan_sekolah', 'default', `Memperbarui profil & rekening sekolah: ${cleanNama}`);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function simpanPengaturanSistem(
+  data: Omit<PengaturanSistem, 'id' | 'updatedAt'>,
+  actor: AuditActor,
+  ringkasanLog?: string
+): Promise<void> {
+  const path = 'pengaturan_sistem/default';
+  const orderPrefix = (data.midtransOrderPrefix || DEFAULT_PENGATURAN_SISTEM.midtransOrderPrefix)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, '')
+    .slice(0, 10);
+  const kwitansiPrefix = (data.prefixKwitansi || DEFAULT_PENGATURAN_SISTEM.prefixKwitansi)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, '')
+    .slice(0, 10);
+  const pengajuanPrefix = (data.prefixPengajuanOrtu || DEFAULT_PENGATURAN_SISTEM.prefixPengajuanOrtu)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, '')
+    .slice(0, 10);
+
+  if (orderPrefix.length < 2) throw new Error('Prefiks Order ID Midtrans minimal 2 karakter.');
+  if (kwitansiPrefix.length < 2) throw new Error('Prefiks nomor kwitansi minimal 2 karakter.');
+  if (pengajuanPrefix.length < 2) throw new Error('Prefiks kode pengajuan portal minimal 2 karakter.');
+
+  const expiry = Math.min(10080, Math.max(15, Math.round(Number(data.midtransExpiryMenit) || 1440)));
+  const jatuhTempo = Math.min(28, Math.max(1, Math.round(Number(data.tanggalJatuhTempo) || 10)));
+  const enabledPayments = Array.from(
+    new Set(
+      (data.midtransEnabledPayments || [])
+        .map((c) => c.trim().slice(0, 40))
+        .filter(Boolean)
+    )
+  ).slice(0, 15);
+
+  try {
+    await setDoc(doc(db, 'pengaturan_sistem', 'default'), {
+      midtransProductionMode: Boolean(data.midtransProductionMode),
+      midtransAktif: Boolean(data.midtransAktif),
+      transferManualAktif: Boolean(data.transferManualAktif),
+      midtransEnabledPayments: enabledPayments,
+      midtransOrderPrefix: orderPrefix,
+      midtransExpiryMenit: expiry,
+      portalOrtuAktif: Boolean(data.portalOrtuAktif),
+      pesanPemeliharaanPortal: (data.pesanPemeliharaanPortal || '').trim().slice(0, 300),
+      petugasBolehBatalkanPembayaran: Boolean(data.petugasBolehBatalkanPembayaran),
+      petugasBolehGenerateTagihan: Boolean(data.petugasBolehGenerateTagihan),
+      petugasBolehLihatMaster: Boolean(data.petugasBolehLihatMaster),
+      kepsekBolehLihatAudit: Boolean(data.kepsekBolehLihatAudit),
+      ortuBolehCicilan: Boolean(data.ortuBolehCicilan),
+      autoGenerateTagihan: Boolean(data.autoGenerateTagihan),
+      tanggalJatuhTempo: jatuhTempo,
+      prefixKwitansi: kwitansiPrefix,
+      prefixPengajuanOrtu: pengajuanPrefix,
+      catatanKakiKwitansi: (data.catatanKakiKwitansi || '').trim().slice(0, 300),
+      tampilkanNipKepsekDiKwitansi: Boolean(data.tampilkanNipKepsekDiKwitansi),
+      templateWaTunggakan: (data.templateWaTunggakan || '').trim().slice(0, 600),
+      updatedAt: serverTimestamp(),
+    });
+    await catatLog(
+      actor,
+      'UPDATE',
+      'pengaturan_sistem',
+      'default',
+      (ringkasanLog || `Memperbarui pengaturan sistem (Midtrans=${data.midtransProductionMode ? 'Production' : 'Sandbox'})`).slice(0, 400)
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -340,12 +423,28 @@ export async function hapusUndanganPeran(inviteId: string, email: string, actor:
   }
 }
 
+function assertUserAccessChangeAllowed(
+  targetUser: AppUser,
+  peranBaru: ActiveRole | 'pending',
+  aktif: boolean,
+  actor: AuditActor
+): void {
+  const targetEmail = (targetUser.email || '').trim().toLowerCase();
+  if (targetEmail === BOOTSTRAPPED_ADMIN_EMAIL && (peranBaru !== 'admin' || !aktif)) {
+    throw new Error('Akun Admin utama sistem tidak dapat diturunkan perannya atau dinonaktifkan.');
+  }
+  if (targetUser.uid === actor.uid && (peranBaru !== 'admin' || !aktif)) {
+    throw new Error('Anda tidak dapat menurunkan peran atau menonaktifkan akun Anda sendiri.');
+  }
+}
+
 export async function ubahPeranPengguna(
   targetUser: AppUser,
   peranBaru: ActiveRole | 'pending',
   aktif: boolean,
   actor: AuditActor
 ): Promise<void> {
+  assertUserAccessChangeAllowed(targetUser, peranBaru, aktif, actor);
   const path = `users/${targetUser.id}`;
   try {
     await updateDoc(doc(db, 'users', targetUser.id), {
@@ -359,6 +458,61 @@ export async function ubahPeranPengguna(
       'users',
       targetUser.id,
       `Mengubah akses ${targetUser.email} menjadi peran=${peranBaru}, aktif=${aktif}`
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function simpanAksesPengguna(
+  targetUser: AppUser,
+  updates: {
+    nama: string;
+    peran: ActiveRole | 'pending';
+    aktif: boolean;
+    catatanAkses?: string;
+    hakAksesKhusus?: HakAksesKhusus;
+  },
+  actor: AuditActor
+): Promise<void> {
+  const cleanNama = updates.nama.trim().slice(0, 120);
+  if (cleanNama.length < 1) {
+    throw new Error('Nama pengguna wajib diisi.');
+  }
+  assertUserAccessChangeAllowed(targetUser, updates.peran, updates.aktif, actor);
+
+  const sanitizedOverrides: HakAksesKhusus = {};
+  if (updates.hakAksesKhusus) {
+    if (typeof updates.hakAksesKhusus.bolehBatalkanPembayaran === 'boolean') {
+      sanitizedOverrides.bolehBatalkanPembayaran = updates.hakAksesKhusus.bolehBatalkanPembayaran;
+    }
+    if (typeof updates.hakAksesKhusus.bolehGenerateTagihan === 'boolean') {
+      sanitizedOverrides.bolehGenerateTagihan = updates.hakAksesKhusus.bolehGenerateTagihan;
+    }
+    if (typeof updates.hakAksesKhusus.bolehLihatMaster === 'boolean') {
+      sanitizedOverrides.bolehLihatMaster = updates.hakAksesKhusus.bolehLihatMaster;
+    }
+    if (typeof updates.hakAksesKhusus.bolehLihatAudit === 'boolean') {
+      sanitizedOverrides.bolehLihatAudit = updates.hakAksesKhusus.bolehLihatAudit;
+    }
+  }
+
+  const path = `users/${targetUser.id}`;
+  try {
+    await updateDoc(doc(db, 'users', targetUser.id), {
+      nama: cleanNama,
+      peran: updates.peran,
+      aktif: Boolean(updates.aktif),
+      catatanAkses: (updates.catatanAkses || '').trim().slice(0, 160),
+      hakAksesKhusus: sanitizedOverrides,
+      updatedAt: serverTimestamp(),
+    });
+    await catatLog(
+      actor,
+      'UPDATE',
+      'users',
+      targetUser.id,
+      `Memperbarui hak akses & profil ${targetUser.email} (peran=${updates.peran}, aktif=${Boolean(updates.aktif)})`
     );
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);

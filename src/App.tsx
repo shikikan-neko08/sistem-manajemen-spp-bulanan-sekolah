@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { Layout } from './components/Layout.tsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext.tsx';
-import { SppDataProvider } from './contexts/SppDataContext.tsx';
+import { SppDataProvider, useSppData } from './contexts/SppDataContext.tsx';
 import { DashboardPage } from './pages/DashboardPage.tsx';
 import { LaporanPage } from './pages/LaporanPage.tsx';
 import { LogAktivitasPage } from './pages/LogAktivitasPage.tsx';
@@ -10,12 +10,14 @@ import { LoginPage } from './pages/LoginPage.tsx';
 import { MasterDataPage } from './pages/MasterDataPage.tsx';
 import { PembayaranPage } from './pages/PembayaranPage.tsx';
 import { PortalOrangTuaPage } from './pages/PortalOrangTuaPage.tsx';
+import { SettingsPage } from './pages/SettingsPage.tsx';
 import { TagihanPage } from './pages/TagihanPage.tsx';
 import { TunggakanPage } from './pages/TunggakanPage.tsx';
 import type { PageRoute } from './types/spp.ts';
 
 function AppShell() {
-  const { firebaseUser, profile, loading, effectiveRole, canTransact, canViewAudit } = useAuth();
+  const { firebaseUser, profile, loading, effectiveRole, canTransact } = useAuth();
+  const { permissions } = useSppData();
   const [activeRoute, setActiveRoute] = useState<PageRoute>('dashboard');
   const [preselectedSiswaId, setPreselectedSiswaId] = useState<string | null>(null);
 
@@ -50,10 +52,10 @@ function AppShell() {
 
     switch (resolvedRoute) {
       case 'master':
-        return effectiveRole === 'kepala_sekolah' ? (
-          <DashboardPage onNavigate={setActiveRoute} />
-        ) : (
+        return permissions.canViewMaster ? (
           <MasterDataPage />
+        ) : (
+          <DashboardPage onNavigate={setActiveRoute} />
         );
       case 'tagihan':
         return canTransact ? <TagihanPage /> : <DashboardPage onNavigate={setActiveRoute} />;
@@ -71,7 +73,17 @@ function AppShell() {
       case 'laporan':
         return <LaporanPage />;
       case 'audit':
-        return canViewAudit ? <LogAktivitasPage /> : <DashboardPage onNavigate={setActiveRoute} />;
+        return permissions.canViewAudit ? (
+          <LogAktivitasPage />
+        ) : (
+          <DashboardPage onNavigate={setActiveRoute} />
+        );
+      case 'settings':
+        return effectiveRole === 'admin' ? (
+          <SettingsPage />
+        ) : (
+          <DashboardPage onNavigate={setActiveRoute} />
+        );
       case 'dashboard':
       default:
         return <DashboardPage onNavigate={setActiveRoute} />;

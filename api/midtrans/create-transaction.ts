@@ -36,17 +36,20 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     const body = (req.body || {}) as Partial<CreateMidtransTransactionInput>;
     const originHeader = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
 
-    const result = await createMidtransTransaction({
-      siswaId: String(body.siswaId || ''),
-      siswaNis: String(body.siswaNis || ''),
-      siswaNama: String(body.siswaNama || ''),
-      kelasNama: String(body.kelasNama || ''),
-      customerName: String(body.customerName || caller.name || ''),
-      customerEmail: caller.email || String(body.customerEmail || ''),
-      customerPhone: String(body.customerPhone || ''),
-      items: Array.isArray(body.items) ? body.items : [],
-      finishCallbackUrl: process.env.APP_URL || originHeader,
-    });
+    const result = await createMidtransTransaction(
+      {
+        siswaId: String(body.siswaId || ''),
+        siswaNis: String(body.siswaNis || ''),
+        siswaNama: String(body.siswaNama || ''),
+        kelasNama: String(body.kelasNama || ''),
+        customerName: String(body.customerName || caller.name || ''),
+        customerEmail: caller.email || String(body.customerEmail || ''),
+        customerPhone: String(body.customerPhone || ''),
+        items: Array.isArray(body.items) ? body.items : [],
+        finishCallbackUrl: process.env.APP_URL || originHeader,
+      },
+      caller.idToken
+    );
 
     res.status(200).json(result);
   } catch (err) {

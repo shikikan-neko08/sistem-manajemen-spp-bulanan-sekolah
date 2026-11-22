@@ -7,8 +7,33 @@ import { getAuth } from 'firebase-admin/auth';
 export interface MidtransPublicConfig {
   configured: boolean;
   isProduction: boolean;
+  midtransAktif: boolean;
+  transferManualAktif: boolean;
   clientKey: string;
   snapScriptUrl: string;
+  keyModeMismatch: boolean;
+}
+
+export interface MidtransAdminDiagnostics {
+  activeConfigured: boolean;
+  sandboxConfigured: boolean;
+  productionConfigured: boolean;
+  isProduction: boolean;
+  envFallbackIsProduction: boolean;
+  keyModeMismatch: boolean;
+  clientKeyMasked: string;
+  sandboxClientKeyMasked: string;
+  productionClientKeyMasked: string;
+  snapBaseUrl: string;
+  coreApiBaseUrl: string;
+  snapScriptUrl: string;
+}
+
+export interface MidtransConnectionTestResult {
+  ok: boolean;
+  isProduction: boolean;
+  statusCode: number;
+  message: string;
 }
 
 export interface MidtransCreateItemInput {
@@ -55,7 +80,19 @@ export interface VerifiedFirebaseCaller {
   uid: string;
   email: string;
   name: string;
+  idToken: string;
 }
+
+interface ServerSystemSettings {
+  midtransProductionMode?: boolean;
+  midtransAktif?: boolean;
+  transferManualAktif?: boolean;
+  midtransEnabledPayments?: string[];
+  midtransOrderPrefix?: string;
+  midtransExpiryMenit?: number;
+}
+
+const BOOTSTRAPPED_ADMIN_EMAIL = 'ardaffa2000@gmail.com';
 
 const NAMA_BULAN = [
   'Januari',
@@ -74,19 +111,25 @@ const NAMA_BULAN = [
 
 const webhookStatusCache = new Map<string, MidtransStatusResult>();
 
-function readFirebaseProjectId(): string {
+function readFirebaseAppletConfig(): { projectId: string; databaseId: string } {
   try {
     const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
     const raw = fs.readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(raw) as { projectId?: string };
-    return parsed.projectId || process.env.GOOGLE_CLOUD_PROJECT || '';
+    const parsed = JSON.parse(raw) as { projectId?: string; firestoreDatabaseId?: string };
+    return {
+      projectId: parsed.projectId || process.env.GOOGLE_CLOUD_PROJECT || '',
+      databaseId: parsed.firestoreDatabaseId || '(default)',
+    };
   } catch {
-    return process.env.GOOGLE_CLOUD_PROJECT || '';
+    return {
+      projectId: process.env.GOOGLE_CLOUD_PROJECT || '',
+      databaseId: '(default)',
+    };
   }
 }
 
 function getFirebaseAdminAuth() {
-  const projectId = readFirebaseProjectId();
+  const { projectId } = readFirebaseAppletConfig();
   if (!projectId || projectId === 'remixed-project-id') {
     throw new Error('Konfigurasi projectId Firebase belum tersedia di server.');
   }
@@ -115,13 +158,122 @@ export async function verifyFirebaseBearer(
     uid: decoded.uid,
     email: String(decoded.email || '').toLowerCase(),
     name: String(decoded.name || decoded.email || 'Pengguna'),
+    idToken: token,
   };
 }
 
-function getRawMidtransCredentials() {
-  const serverKey = (process.env.MIDTRANS_SERVER_KEY || '').trim();
-  const clientKey = (process.env.MIDTRANS_CLIENT_KEY || '').trim();
-  const isProduction = (process.env.MIDTRANS_IS_PRODUCTION || 'false').trim().toLowerCase() === 'true';
+interface FirestoreRestValue {
+  stringValue?: string;
+  booleanValue?: boolean;
+  integerValue?: string;
+  doubleValue?: number;
+  arrayValue?: { values?: FirestoreRestValue[] };
+}
+
+async function fetchFirestoreDocWithCallerToken(
+  docPath: string,
+  idToken: string
+): Promise<Record<string, FirestoreRestValue> | null> {
+  const { projectId, databaseId } = readFirebaseAppletConfig();
+  if (!projectId || !idToken) return null;
+
+  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+    projectId
+  )}/databases/${encodeURIComponent(databaseId)}/documents/${docPath}`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { fields?: Record<string, FirestoreRestValue> };
+    return json.fields || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function verifyAdminCaller(
+  authHeader: string | undefined
+): Promise<VerifiedFirebaseCaller> {
+  const caller = await verifyFirebaseBearer(authHeader);
+  if (caller.email === BOOTSTRAPPED_ADMIN_EMAIL) {
+    return caller;
+  }
+  const userFields = await fetchFirestoreDocWithCallerToken(`users/${caller.uid}`, caller.idToken);
+  const role = userFields?.peran?.stringValue || '';
+  const active = userFields?.aktif?.booleanValue === true;
+  if (role !== 'admin' || !active) {
+    throw new Error('FORBIDDEN: Hanya Admin aktif yang dapat mengakses konfigurasi ini.');
+  }
+  return caller;
+}
+
+async function fetchServerSystemSettings(idToken?: string): Promise<ServerSystemSettings> {
+  if (!idToken) return {};
+  const fields = await fetchFirestoreDocWithCallerToken('pengaturan_sistem/default', idToken);
+  if (!fields) return {};
+
+  const enabledPaymentsRaw = fields.midtransEnabledPayments?.arrayValue?.values || [];
+  const enabledPayments = enabledPaymentsRaw
+    .map((v) => v.stringValue || '')
+    .filter((v) => /^[a-z0-9_]{2,40}$/.test(v));
+
+  const expiryRaw =
+    fields.midtransExpiryMenit?.integerValue !== undefined
+      ? Number(fields.midtransExpiryMenit.integerValue)
+      : fields.midtransExpiryMenit?.doubleValue;
+
+  return {
+    midtransProductionMode:
+      typeof fields.midtransProductionMode?.booleanValue === 'boolean'
+        ? fields.midtransProductionMode.booleanValue
+        : undefined,
+    midtransAktif:
+      typeof fields.midtransAktif?.booleanValue === 'boolean'
+        ? fields.midtransAktif.booleanValue
+        : undefined,
+    transferManualAktif:
+      typeof fields.transferManualAktif?.booleanValue === 'boolean'
+        ? fields.transferManualAktif.booleanValue
+        : undefined,
+    midtransEnabledPayments: enabledPayments,
+    midtransOrderPrefix: fields.midtransOrderPrefix?.stringValue || undefined,
+    midtransExpiryMenit: Number.isFinite(expiryRaw) ? Number(expiryRaw) : undefined,
+  };
+}
+
+function maskKey(key: string): string {
+  const trimmed = key.trim();
+  if (!trimmed) return '';
+  if (trimmed.length <= 10) return '••••••';
+  return `${trimmed.slice(0, 10)}••••${trimmed.slice(-4)}`;
+}
+
+function getEnvBoolIsProduction(): boolean {
+  return (process.env.MIDTRANS_IS_PRODUCTION || 'false').trim().toLowerCase() === 'true';
+}
+
+function getRawMidtransCredentials(isProductionOverride?: boolean) {
+  const isProduction =
+    typeof isProductionOverride === 'boolean' ? isProductionOverride : getEnvBoolIsProduction();
+
+  const defaultServerKey = (process.env.MIDTRANS_SERVER_KEY || '').trim();
+  const defaultClientKey = (process.env.MIDTRANS_CLIENT_KEY || '').trim();
+  const sandboxServerKey = (process.env.MIDTRANS_SANDBOX_SERVER_KEY || '').trim();
+  const sandboxClientKey = (process.env.MIDTRANS_SANDBOX_CLIENT_KEY || '').trim();
+  const prodServerKey = (process.env.MIDTRANS_PRODUCTION_SERVER_KEY || '').trim();
+  const prodClientKey = (process.env.MIDTRANS_PRODUCTION_CLIENT_KEY || '').trim();
+
+  const serverKey = isProduction
+    ? prodServerKey || defaultServerKey
+    : sandboxServerKey || defaultServerKey;
+  const clientKey = isProduction
+    ? prodClientKey || defaultClientKey
+    : sandboxClientKey || defaultClientKey;
 
   const snapBaseUrl = isProduction
     ? 'https://app.midtrans.com'
@@ -130,25 +282,155 @@ function getRawMidtransCredentials() {
     ? 'https://api.midtrans.com'
     : 'https://api.sandbox.midtrans.com';
 
+  const hasSandboxPrefix =
+    serverKey.startsWith('SB-Mid-') || clientKey.startsWith('SB-Mid-');
+  const hasProdPrefix =
+    serverKey.startsWith('Mid-server-') || clientKey.startsWith('Mid-client-');
+  const keyModeMismatch =
+    Boolean(serverKey && clientKey) &&
+    ((isProduction && hasSandboxPrefix) || (!isProduction && hasProdPrefix));
+
   return {
     serverKey,
     clientKey,
     isProduction,
     configured: Boolean(serverKey && clientKey),
+    sandboxConfigured: Boolean(
+      (sandboxServerKey && sandboxClientKey) ||
+        (defaultServerKey && defaultClientKey && !defaultServerKey.startsWith('Mid-server-'))
+    ),
+    productionConfigured: Boolean(
+      (prodServerKey && prodClientKey) ||
+        (defaultServerKey && defaultClientKey && defaultServerKey.startsWith('Mid-server-'))
+    ),
+    sandboxClientKeyMasked: maskKey(sandboxClientKey || (!defaultClientKey.startsWith('Mid-client-') ? defaultClientKey : '')),
+    productionClientKeyMasked: maskKey(prodClientKey || (defaultClientKey.startsWith('Mid-client-') ? defaultClientKey : '')),
+    keyModeMismatch,
     snapBaseUrl,
     coreApiBaseUrl,
     snapScriptUrl: `${snapBaseUrl}/snap/snap.js`,
   };
 }
 
-export function getMidtransPublicConfig(): MidtransPublicConfig {
-  const cfg = getRawMidtransCredentials();
+async function resolveOptionalBearerIdToken(authHeader?: string): Promise<string | undefined> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return undefined;
+  try {
+    const caller = await verifyFirebaseBearer(authHeader);
+    return caller.idToken;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function getMidtransPublicConfig(
+  authHeader?: string
+): Promise<MidtransPublicConfig> {
+  const idToken = await resolveOptionalBearerIdToken(authHeader);
+  const sysSettings = await fetchServerSystemSettings(idToken);
+  const cfg = getRawMidtransCredentials(sysSettings.midtransProductionMode);
   return {
     configured: cfg.configured,
     isProduction: cfg.isProduction,
+    midtransAktif: sysSettings.midtransAktif ?? true,
+    transferManualAktif: sysSettings.transferManualAktif ?? true,
     clientKey: cfg.configured ? cfg.clientKey : '',
     snapScriptUrl: cfg.snapScriptUrl,
+    keyModeMismatch: cfg.keyModeMismatch,
   };
+}
+
+export async function getMidtransAdminDiagnostics(
+  authHeader: string | undefined
+): Promise<MidtransAdminDiagnostics> {
+  const caller = await verifyAdminCaller(authHeader);
+  const sysSettings = await fetchServerSystemSettings(caller.idToken);
+  const cfg = getRawMidtransCredentials(sysSettings.midtransProductionMode);
+
+  return {
+    activeConfigured: cfg.configured,
+    sandboxConfigured: cfg.sandboxConfigured,
+    productionConfigured: cfg.productionConfigured,
+    isProduction: cfg.isProduction,
+    envFallbackIsProduction: getEnvBoolIsProduction(),
+    keyModeMismatch: cfg.keyModeMismatch,
+    clientKeyMasked: maskKey(cfg.clientKey),
+    sandboxClientKeyMasked: cfg.sandboxClientKeyMasked,
+    productionClientKeyMasked: cfg.productionClientKeyMasked,
+    snapBaseUrl: cfg.snapBaseUrl,
+    coreApiBaseUrl: cfg.coreApiBaseUrl,
+    snapScriptUrl: cfg.snapScriptUrl,
+  };
+}
+
+export async function testMidtransApiConnection(
+  authHeader: string | undefined
+): Promise<MidtransConnectionTestResult> {
+  const caller = await verifyAdminCaller(authHeader);
+  const sysSettings = await fetchServerSystemSettings(caller.idToken);
+  const cfg = getRawMidtransCredentials(sysSettings.midtransProductionMode);
+  const modeLabel = cfg.isProduction ? 'Production' : 'Sandbox';
+
+  if (!cfg.configured) {
+    return {
+      ok: false,
+      isProduction: cfg.isProduction,
+      statusCode: 503,
+      message: `Kredensial Midtrans untuk mode ${modeLabel} belum lengkap di Environment Variables server.`,
+    };
+  }
+
+  if (cfg.keyModeMismatch) {
+    return {
+      ok: false,
+      isProduction: cfg.isProduction,
+      statusCode: 400,
+      message: `Ketidakcocokan kunci: Mode aktif adalah ${modeLabel}, tetapi kunci yang terpasang berasal dari lingkungan ${
+        cfg.isProduction ? 'Sandbox (SB-Mid-...)' : 'Production (Mid-...)'
+      }.`,
+    };
+  }
+
+  try {
+    const response = await fetch(`${cfg.coreApiBaseUrl}/v2/SIP-SPP-PING-CHECK/status`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: basicAuthHeader(cfg.serverKey),
+      },
+    });
+
+    if (response.status === 404 || response.ok) {
+      return {
+        ok: true,
+        isProduction: cfg.isProduction,
+        statusCode: response.status,
+        message: `Koneksi API Midtrans (${modeLabel}) berhasil diverifikasi. Server Key valid.`,
+      };
+    }
+
+    if (response.status === 401) {
+      return {
+        ok: false,
+        isProduction: cfg.isProduction,
+        statusCode: 401,
+        message: `Midtrans menolak autentikasi (HTTP 401) pada mode ${modeLabel}. Periksa kembali Server Key Anda.`,
+      };
+    }
+
+    return {
+      ok: false,
+      isProduction: cfg.isProduction,
+      statusCode: response.status,
+      message: `Midtrans merespons dengan status HTTP ${response.status}.`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      isProduction: cfg.isProduction,
+      statusCode: 502,
+      message: err instanceof Error ? err.message : 'Gagal menghubungi server Midtrans.',
+    };
+  }
 }
 
 function basicAuthHeader(serverKey: string): string {
@@ -176,9 +458,15 @@ function isSafeHttpUrl(raw: string | undefined): string | undefined {
 }
 
 export async function createMidtransTransaction(
-  input: CreateMidtransTransactionInput
+  input: CreateMidtransTransactionInput,
+  callerIdToken?: string
 ): Promise<MidtransTransactionResult> {
-  const cfg = getRawMidtransCredentials();
+  const sysSettings = await fetchServerSystemSettings(callerIdToken);
+  if (sysSettings.midtransAktif === false) {
+    throw new Error('BAD_REQUEST: Pembayaran online Midtrans sedang dinonaktifkan oleh Admin.');
+  }
+
+  const cfg = getRawMidtransCredentials(sysSettings.midtransProductionMode);
   if (!cfg.configured) {
     throw new Error(
       'MIDTRANS_NOT_CONFIGURED: Kunci Midtrans (MIDTRANS_SERVER_KEY dan MIDTRANS_CLIENT_KEY) belum dikonfigurasi di server.'
@@ -240,8 +528,13 @@ export async function createMidtransTransaction(
     throw new Error('BAD_REQUEST: Total nominal transaksi di luar batas wajar.');
   }
 
+  const rawPrefix = (sysSettings.midtransOrderPrefix || 'SPP')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 10);
+  const orderPrefix = rawPrefix.length >= 2 ? rawPrefix : 'SPP';
   const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
-  const orderId = `SPP-${Date.now().toString(36).toUpperCase()}-${rand}`.slice(0, 50);
+  const orderId = `${orderPrefix}-${Date.now().toString(36).toUpperCase()}-${rand}`.slice(0, 50);
 
   const safeCallback = isSafeHttpUrl(input.finishCallbackUrl || process.env.APP_URL);
   const payload: Record<string, unknown> = {
@@ -259,6 +552,24 @@ export async function createMidtransTransaction(
     custom_field2: kelasNama,
     custom_field3: siswaId,
   };
+
+  if (
+    Array.isArray(sysSettings.midtransEnabledPayments) &&
+    sysSettings.midtransEnabledPayments.length > 0
+  ) {
+    payload.enabled_payments = sysSettings.midtransEnabledPayments;
+  }
+
+  if (
+    typeof sysSettings.midtransExpiryMenit === 'number' &&
+    sysSettings.midtransExpiryMenit >= 15 &&
+    sysSettings.midtransExpiryMenit <= 10080
+  ) {
+    payload.expiry = {
+      unit: 'minutes',
+      duration: Math.round(sysSettings.midtransExpiryMenit),
+    };
+  }
 
   if (safeCallback) {
     payload.callbacks = {
@@ -323,13 +634,17 @@ function normalizeMidtransStatusResponse(
   };
 }
 
-export async function fetchMidtransStatus(orderId: string): Promise<MidtransStatusResult> {
+export async function fetchMidtransStatus(
+  orderId: string,
+  callerIdToken?: string
+): Promise<MidtransStatusResult> {
   const cleanOrderId = sanitizeSafeText(orderId, 60);
   if (!/^[a-zA-Z0-9_\-]{5,60}$/.test(cleanOrderId)) {
     throw new Error('BAD_REQUEST: Format orderId Midtrans tidak valid.');
   }
 
-  const cfg = getRawMidtransCredentials();
+  const sysSettings = await fetchServerSystemSettings(callerIdToken);
+  const cfg = getRawMidtransCredentials(sysSettings.midtransProductionMode);
   if (!cfg.configured) {
     throw new Error(
       'MIDTRANS_NOT_CONFIGURED: Kunci Midtrans belum dikonfigurasi di server.'
@@ -390,8 +705,17 @@ function cacheWebhookStatus(entry: MidtransStatusResult) {
 }
 
 export function verifyMidtransWebhookNotification(body: unknown): MidtransStatusResult {
-  const cfg = getRawMidtransCredentials();
-  if (!cfg.serverKey) {
+  const candidateKeys = Array.from(
+    new Set(
+      [
+        (process.env.MIDTRANS_SERVER_KEY || '').trim(),
+        (process.env.MIDTRANS_SANDBOX_SERVER_KEY || '').trim(),
+        (process.env.MIDTRANS_PRODUCTION_SERVER_KEY || '').trim(),
+      ].filter(Boolean)
+    )
+  );
+
+  if (candidateKeys.length === 0) {
     throw new Error('MIDTRANS_NOT_CONFIGURED: MIDTRANS_SERVER_KEY belum diatur.');
   }
 
@@ -403,22 +727,25 @@ export function verifyMidtransWebhookNotification(body: unknown): MidtransStatus
   const orderId = typeof raw.order_id === 'string' ? raw.order_id.trim() : '';
   const statusCode = typeof raw.status_code === 'string' ? raw.status_code.trim() : '';
   const grossAmount = typeof raw.gross_amount === 'string' ? raw.gross_amount.trim() : '';
-  const signatureKey = typeof raw.signature_key === 'string' ? raw.signature_key.trim().toLowerCase() : '';
+  const signatureKey =
+    typeof raw.signature_key === 'string' ? raw.signature_key.trim().toLowerCase() : '';
 
   if (!orderId || !statusCode || !grossAmount || !signatureKey) {
     throw new Error('BAD_REQUEST: Field signature webhook Midtrans tidak lengkap.');
   }
 
-  const expectedHex = crypto
-    .createHash('sha512')
-    .update(`${orderId}${statusCode}${grossAmount}${cfg.serverKey}`)
-    .digest('hex')
-    .toLowerCase();
-
-  const expectedBuf = Buffer.from(expectedHex, 'utf8');
   const actualBuf = Buffer.from(signatureKey, 'utf8');
+  const validMatch = candidateKeys.some((serverKey) => {
+    const expectedHex = crypto
+      .createHash('sha512')
+      .update(`${orderId}${statusCode}${grossAmount}${serverKey}`)
+      .digest('hex')
+      .toLowerCase();
+    const expectedBuf = Buffer.from(expectedHex, 'utf8');
+    return expectedBuf.length === actualBuf.length && crypto.timingSafeEqual(expectedBuf, actualBuf);
+  });
 
-  if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
+  if (!validMatch) {
     throw new Error('FORBIDDEN: Signature webhook Midtrans tidak valid.');
   }
 

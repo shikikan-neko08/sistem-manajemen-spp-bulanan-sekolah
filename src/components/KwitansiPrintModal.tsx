@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, Printer, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.tsx';
+import { useSppData } from '../contexts/SppDataContext.tsx';
 import { formatRupiah, formatTanggalIndonesia, namaBulan } from '../lib/format.ts';
 import { cetakPdfKwitansi } from '../services/exportService.ts';
 import { ambilDetailPembayaran } from '../services/pembayaranService.ts';
@@ -15,6 +16,7 @@ interface Props {
 
 export function KwitansiPrintModal({ pembayaran, initialDetails, sekolah, onClose }: Props) {
   const { profile, isParent } = useAuth();
+  const { pengaturanSistem } = useSppData();
   const [details, setDetails] = useState<PembayaranDetail[]>(initialDetails || []);
   const [loading, setLoading] = useState(!initialDetails);
 
@@ -53,7 +55,7 @@ export function KwitansiPrintModal({ pembayaran, initialDetails, sekolah, onClos
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => cetakPdfKwitansi(pembayaran, details, sekolah)}
+              onClick={() => cetakPdfKwitansi(pembayaran, details, sekolah, pengaturanSistem)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
             >
               <Download className="w-3.5 h-3.5" />
@@ -84,7 +86,10 @@ export function KwitansiPrintModal({ pembayaran, initialDetails, sekolah, onClos
             <div>
               <h2 className="text-lg font-bold text-slate-900 tracking-tight">{namaSekolah}</h2>
               <p className="text-xs text-slate-600 mt-0.5">{alamat}</p>
-              <p className="text-xs text-slate-600">Telp: {telepon}</p>
+              <p className="text-xs text-slate-600">
+                Telp: {telepon}
+                {sekolah?.npsn ? ` · NPSN: ${sekolah.npsn}` : ''}
+              </p>
             </div>
             <div className="sm:text-right">
               <div className="text-xs font-semibold text-teal-800 tracking-wide">KWITANSI RESMI SPP</div>
@@ -193,14 +198,31 @@ export function KwitansiPrintModal({ pembayaran, initialDetails, sekolah, onClos
           {/* Footer TTD */}
           <div className="pt-4 flex flex-col sm:flex-row sm:items-end justify-between gap-6 border-t border-slate-100">
             <div className="text-xs text-slate-500 max-w-xs">
-              Simpan kwitansi ini sebagai bukti pembayaran SPP yang sah. Diterbitkan oleh sistem administrasi {namaSekolah}.
+              {pengaturanSistem.catatanKakiKwitansi ||
+                `Simpan kwitansi ini sebagai bukti pembayaran SPP yang sah. Diterbitkan oleh sistem administrasi ${namaSekolah}.`}
             </div>
-            <div className="sm:text-right text-sm">
-              <div className="text-xs text-slate-600">
-                {kota}, {formatTanggalIndonesia(pembayaran.tanggalBayar)}
+            <div className="flex flex-col sm:flex-row gap-6 sm:gap-10">
+              {pengaturanSistem.tampilkanNipKepsekDiKwitansi && sekolah?.namaKepalaSekolah && (
+                <div className="text-sm">
+                  <div className="text-xs text-slate-500">Mengetahui,</div>
+                  <div className="text-xs text-slate-500">Kepala Sekolah</div>
+                  <div className="font-semibold text-slate-900 mt-8">
+                    {sekolah.namaKepalaSekolah}
+                  </div>
+                  {sekolah.nipKepalaSekolah && (
+                    <div className="text-[11px] font-mono text-slate-500">
+                      NIP. {sekolah.nipKepalaSekolah}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="sm:text-right text-sm">
+                <div className="text-xs text-slate-600">
+                  {kota}, {formatTanggalIndonesia(pembayaran.tanggalBayar)}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">Petugas / Bendahara,</div>
+                <div className="font-semibold text-slate-900 mt-8">{pembayaran.petugasNama}</div>
               </div>
-              <div className="text-xs text-slate-500 mt-0.5">Petugas / Bendahara,</div>
-              <div className="font-semibold text-slate-900 mt-8">{pembayaran.petugasNama}</div>
             </div>
           </div>
         </div>

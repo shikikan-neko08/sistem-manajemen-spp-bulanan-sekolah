@@ -6,46 +6,37 @@ import {
   Plus,
   Search,
   Trash2,
-  UserPlus,
 } from 'lucide-react';
 import { SiswaFormModal } from '../components/SiswaFormModal.tsx';
 import { StatusSiswaBadge } from '../components/StatusBadge.tsx';
 import { useAuth } from '../contexts/AuthContext.tsx';
 import { useSppData } from '../contexts/SppDataContext.tsx';
-import { formatRupiah, labelPeran } from '../lib/format.ts';
+import { formatRupiah } from '../lib/format.ts';
 import {
   hapusKelas,
   hapusSiswa,
-  hapusUndanganPeran,
   setTahunAjaranAktif,
   simpanKelas,
-  simpanPengaturanSekolah,
   simpanTarifSpp,
   tambahTahunAjaran,
-  ubahPeranPengguna,
-  undangPenggunaPeran,
 } from '../services/masterService.ts';
 import { seedContohData } from '../services/seeder.ts';
 import type {
-  ActiveRole,
   Kelas,
   Siswa,
   TingkatKelas,
 } from '../types/spp.ts';
 
-type MasterTab = 'siswa' | 'kelas' | 'tarif' | 'sekolah' | 'pengguna';
+type MasterTab = 'siswa' | 'kelas' | 'tarif';
 
 export function MasterDataPage() {
   const { profile, canManageMaster } = useAuth();
   const {
-    sekolah,
     tahunAjaranList,
     tahunAjaranAktif,
     kelasList,
     tarifList,
     siswaList,
-    usersList,
-    roleInvites,
   } = useSppData();
 
   const [tab, setTab] = useState<MasterTab>('siswa');
@@ -73,36 +64,6 @@ export function MasterDataPage() {
 
   // Tarif form state
   const [tarifDrafts, setTarifDrafts] = useState<Record<string, string>>({});
-
-  // Sekolah form state
-  const [sekNama, setSekNama] = useState(sekolah?.namaSekolah || 'SMA Negeri 1 Nusantara');
-  const [sekAlamat, setSekAlamat] = useState(sekolah?.alamat || '');
-  const [sekTelp, setSekTelp] = useState(sekolah?.telepon || '');
-  const [sekEmail, setSekEmail] = useState(sekolah?.email || '');
-  const [sekKota, setSekKota] = useState(sekolah?.kota || 'Bandung');
-  const [sekKepsek, setSekKepsek] = useState(sekolah?.namaKepalaSekolah || '');
-  const [sekBank, setSekBank] = useState(sekolah?.namaBank || '');
-  const [sekNoRek, setSekNoRek] = useState(sekolah?.noRekening || '');
-  const [sekAtasNama, setSekAtasNama] = useState(sekolah?.atasNamaRekening || '');
-
-  React.useEffect(() => {
-    if (sekolah) {
-      setSekNama(sekolah.namaSekolah);
-      setSekAlamat(sekolah.alamat);
-      setSekTelp(sekolah.telepon);
-      setSekEmail(sekolah.email);
-      setSekKota(sekolah.kota);
-      setSekKepsek(sekolah.namaKepalaSekolah);
-      setSekBank(sekolah.namaBank || '');
-      setSekNoRek(sekolah.noRekening || '');
-      setSekAtasNama(sekolah.atasNamaRekening || '');
-    }
-  }, [sekolah]);
-
-  // Role invite form
-  const [invEmail, setInvEmail] = useState('');
-  const [invNama, setInvNama] = useState('');
-  const [invPeran, setInvPeran] = useState<ActiveRole>('petugas');
   const [seeding, setSeeding] = useState(false);
 
   const actor = useMemo(
@@ -225,45 +186,6 @@ export function MasterDataPage() {
     }
   };
 
-  const handleSaveSekolah = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    setNotice(null);
-    try {
-      await simpanPengaturanSekolah(
-        {
-          namaSekolah: sekNama,
-          alamat: sekAlamat,
-          telepon: sekTelp,
-          email: sekEmail,
-          kota: sekKota,
-          namaKepalaSekolah: sekKepsek,
-          namaBank: sekBank,
-          noRekening: sekNoRek,
-          atasNamaRekening: sekAtasNama,
-        },
-        actor
-      );
-      setNotice('Profil & rekening sekolah berhasil disimpan.');
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Gagal menyimpan profil sekolah.');
-    }
-  };
-
-  const handleInviteRole = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    setNotice(null);
-    try {
-      await undangPenggunaPeran(invEmail, invNama, invPeran, actor);
-      setInvEmail('');
-      setInvNama('');
-      setNotice('Undangan peran pengguna berhasil ditambahkan.');
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Gagal menambah undangan peran.');
-    }
-  };
-
   const handleSeedNow = async () => {
     setSeeding(true);
     setErrorMsg(null);
@@ -289,8 +211,6 @@ export function MasterDataPage() {
             { id: 'siswa' as const, label: `Siswa (${siswaList.length})`, show: true },
             { id: 'kelas' as const, label: 'Kelas & Tahun Ajaran', show: true },
             { id: 'tarif' as const, label: 'Tarif SPP', show: true },
-            { id: 'sekolah' as const, label: 'Profil Sekolah', show: canManageMaster },
-            { id: 'pengguna' as const, label: 'Pengguna & Peran', show: canManageMaster },
           ]
             .filter((t) => t.show)
             .map((t) => (
@@ -708,257 +628,6 @@ export function MasterDataPage() {
                 </div>
               );
             })}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 4: PROFIL SEKOLAH */}
-      {tab === 'sekolah' && canManageMaster && (
-        <form
-          onSubmit={(e) => void handleSaveSekolah(e)}
-          className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6 max-w-2xl space-y-4"
-        >
-          <h2 className="text-base font-semibold text-slate-900">
-            Profil Sekolah (Kop Kwitansi & Laporan)
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-slate-700 mb-1">Nama Sekolah</label>
-              <input
-                type="text"
-                value={sekNama}
-                onChange={(e) => setSekNama(e.target.value)}
-                required
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-slate-700 mb-1">Alamat Lengkap</label>
-              <input
-                type="text"
-                value={sekAlamat}
-                onChange={(e) => setSekAlamat(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Kota</label>
-              <input
-                type="text"
-                value={sekKota}
-                onChange={(e) => setSekKota(e.target.value)}
-                required
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Telepon</label>
-              <input
-                type="text"
-                value={sekTelp}
-                onChange={(e) => setSekTelp(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Email Tata Usaha</label>
-              <input
-                type="email"
-                value={sekEmail}
-                onChange={(e) => setSekEmail(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Kepala Sekolah</label>
-              <input
-                type="text"
-                value={sekKepsek}
-                onChange={(e) => setSekKepsek(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-slate-200 space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">
-                Rekening Penerimaan SPP Online (Portal Orang Tua)
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Ditampilkan kepada orang tua/wali saat melakukan pembayaran transfer bank di portal.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Nama Bank</label>
-                <input
-                  type="text"
-                  value={sekBank}
-                  onChange={(e) => setSekBank(e.target.value)}
-                  placeholder="Contoh: Bank BRI / BCA"
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">No. Rekening</label>
-                <input
-                  type="text"
-                  value={sekNoRek}
-                  onChange={(e) => setSekNoRek(e.target.value)}
-                  placeholder="Contoh: 0012-01-004829-50-3"
-                  className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Atas Nama</label>
-                <input
-                  type="text"
-                  value={sekAtasNama}
-                  onChange={(e) => setSekAtasNama(e.target.value)}
-                  placeholder="Bendahara Komite SMA"
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-                />
-              </div>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            className="px-5 py-2.5 text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-lg"
-          >
-            Simpan Profil Sekolah
-          </button>
-        </form>
-      )}
-
-      {/* TAB 5: PENGGUNA & PERAN */}
-      {tab === 'pengguna' && canManageMaster && (
-        <div className="space-y-6">
-          <form
-            onSubmit={(e) => void handleInviteRole(e)}
-            className="bg-white border border-slate-200 rounded-xl p-5 space-y-4"
-          >
-            <div className="flex items-center gap-2">
-              <UserPlus className="w-4 h-4 text-teal-700" />
-              <h2 className="text-base font-semibold text-slate-900">
-                Tetapkan Peran Staf / Orang Tua Sebelum Login
-              </h2>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <input
-                type="email"
-                value={invEmail}
-                onChange={(e) => setInvEmail(e.target.value)}
-                placeholder="Email pengguna / orang tua"
-                required
-                className="px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-              <input
-                type="text"
-                value={invNama}
-                onChange={(e) => setInvNama(e.target.value)}
-                placeholder="Nama lengkap"
-                required
-                className="px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-              <select
-                value={invPeran}
-                onChange={(e) => setInvPeran(e.target.value as ActiveRole)}
-                className="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-              >
-                <option value="petugas">Petugas / Bendahara</option>
-                <option value="kepala_sekolah">Kepala Sekolah</option>
-                <option value="orang_tua">Orang Tua / Wali</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button
-                type="submit"
-                className="px-4 py-2 text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-lg whitespace-nowrap"
-              >
-                Simpan Undangan
-              </button>
-            </div>
-
-            {roleInvites.length > 0 && (
-              <div className="pt-2 divide-y divide-slate-100">
-                {roleInvites.map((inv) => (
-                  <div key={inv.id} className="py-2 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-medium text-slate-900">{inv.nama}</span> ·{' '}
-                      <span className="text-slate-600">{inv.email}</span> ·{' '}
-                      <span className="font-semibold text-teal-800">{labelPeran(inv.peran)}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void hapusUndanganPeran(inv.id, inv.email, actor)}
-                      className="text-red-700 hover:underline"
-                    >
-                      Hapus
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </form>
-
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="p-4 border-b border-slate-200">
-              <h2 className="text-base font-semibold text-slate-900">Pengguna Terdaftar</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-600">
-                  <tr>
-                    <th className="py-2.5 px-4 text-left font-semibold">Nama</th>
-                    <th className="py-2.5 px-4 text-left font-semibold">Email</th>
-                    <th className="py-2.5 px-4 text-left font-semibold">Peran</th>
-                    <th className="py-2.5 px-4 text-left font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {usersList.map((u) => (
-                    <tr key={u.id}>
-                      <td className="py-2.5 px-4 font-medium text-slate-900">{u.nama}</td>
-                      <td className="py-2.5 px-4 text-slate-600 text-xs">{u.email}</td>
-                      <td className="py-2.5 px-4">
-                        <select
-                          value={u.peran}
-                          onChange={(e) =>
-                            void ubahPeranPengguna(
-                              u,
-                              e.target.value as ActiveRole | 'pending',
-                              u.aktif,
-                              actor
-                            )
-                          }
-                          className="px-2.5 py-1 text-xs border border-slate-300 rounded-md bg-white"
-                        >
-                          <option value="admin">Admin</option>
-                          <option value="petugas">Petugas / Bendahara</option>
-                          <option value="kepala_sekolah">Kepala Sekolah</option>
-                          <option value="orang_tua">Orang Tua / Wali</option>
-                          <option value="pending">Pending</option>
-                        </select>
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <button
-                          type="button"
-                          onClick={() => void ubahPeranPengguna(u, u.peran, !u.aktif, actor)}
-                          className={`px-2.5 py-1 text-xs font-medium rounded-md border ${
-                            u.aktif
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-red-50 text-red-700 border-red-200'
-                          }`}
-                        >
-                          {u.aktif ? 'Aktif' : 'Nonaktif'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </div>
         </div>
       )}

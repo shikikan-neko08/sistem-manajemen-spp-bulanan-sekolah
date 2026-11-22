@@ -12,6 +12,7 @@ export interface GenerateTagihanParams {
   kelasList: Kelas[];
   tarifList: TarifSpp[];
   existingTagihan: TagihanSpp[];
+  tanggalJatuhTempo?: number;
   actor: AuditActor;
 }
 
@@ -24,7 +25,17 @@ export interface GenerateTagihanResult {
 export async function generateTagihanBulanan(
   params: GenerateTagihanParams
 ): Promise<GenerateTagihanResult> {
-  const { bulan, tahun, tahunAjaranId, siswaList, kelasList, tarifList, existingTagihan, actor } = params;
+  const {
+    bulan,
+    tahun,
+    tahunAjaranId,
+    siswaList,
+    kelasList,
+    tarifList,
+    existingTagihan,
+    tanggalJatuhTempo = 10,
+    actor,
+  } = params;
 
   if (bulan < 1 || bulan > 12) throw new Error('Bulan harus antara 1 sampai 12.');
   if (tahun < 2020 || tahun > 2100) throw new Error('Tahun tidak valid.');
@@ -40,7 +51,8 @@ export async function generateTagihanBulanan(
   }
 
   const activeStudents = siswaList.filter((s) => s.statusAktif === 'aktif');
-  const jatuhTempo = `${tahun}-${String(bulan).padStart(2, '0')}-10`;
+  const clampedDay = Math.min(28, Math.max(1, Math.round(tanggalJatuhTempo || 10)));
+  const jatuhTempo = `${tahun}-${String(bulan).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`;
 
   let createdCount = 0;
   let skippedCount = 0;

@@ -2,18 +2,25 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { formatRupiah, formatTanggalIndonesia, namaBulan } from '../lib/format.ts';
-import type { Pembayaran, PembayaranDetail, PengaturanSekolah } from '../types/spp.ts';
+import type {
+  Pembayaran,
+  PembayaranDetail,
+  PengaturanSekolah,
+  PengaturanSistem,
+} from '../types/spp.ts';
 
 export function cetakPdfKwitansi(
   pembayaran: Pembayaran,
   details: PembayaranDetail[],
-  sekolah: PengaturanSekolah | null
+  sekolah: PengaturanSekolah | null,
+  pengaturanSistem?: PengaturanSistem | null
 ): void {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const namaSekolah = sekolah?.namaSekolah || 'SMA Negeri 1 Nusantara';
   const alamatSekolah = sekolah?.alamat || 'Jl. Pendidikan Merdeka No. 45';
   const telepon = sekolah?.telepon || '-';
   const kota = sekolah?.kota || 'Bandung';
+  const npsn = sekolah?.npsn ? ` · NPSN: ${sekolah.npsn}` : '';
 
   // Kop Surat
   doc.setFont('helvetica', 'bold');
@@ -23,7 +30,7 @@ export function cetakPdfKwitansi(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(80, 80, 80);
-  doc.text(`${alamatSekolah} | Telp: ${telepon}`, 14, 24);
+  doc.text(`${alamatSekolah} | Telp: ${telepon}${npsn}`, 14, 24);
   doc.setDrawColor(15, 23, 42);
   doc.setLineWidth(0.6);
   doc.line(14, 27, 196, 27);
@@ -95,19 +102,36 @@ export function cetakPdfKwitansi(
     doc.text(`Catatan: ${pembayaran.catatan}`, 14, finalY);
   }
 
-  // Tanda Tangan Petugas
+  // Tanda Tangan
   const sigY = finalY + 12;
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(9.5);
+  if (pengaturanSistem?.tampilkanNipKepsekDiKwitansi && sekolah?.namaKepalaSekolah) {
+    doc.setFont('helvetica', 'normal');
+    doc.text('Mengetahui, Kepala Sekolah', 14, sigY + 5);
+    doc.setFont('helvetica', 'bold');
+    doc.text(sekolah.namaKepalaSekolah, 14, sigY + 22);
+    if (sekolah.nipKepalaSekolah) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.text(`NIP. ${sekolah.nipKepalaSekolah}`, 14, sigY + 27);
+    }
+    doc.setFontSize(9.5);
+  }
+
+  doc.setFont('helvetica', 'normal');
   doc.text(`${kota}, ${formatTanggalIndonesia(pembayaran.tanggalBayar)}`, 135, sigY);
   doc.text('Petugas / Bendahara,', 135, sigY + 5);
   doc.setFont('helvetica', 'bold');
-  doc.text(pembayaran.petugasNama, 135, sigY + 24);
+  doc.text(pembayaran.petugasNama, 135, sigY + 22);
 
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(8);
   doc.setTextColor(100, 116, 139);
-  doc.text('Dokumen sah ini diterbitkan secara elektronik oleh Sistem Pendataan SPP.', 14, sigY + 24);
+  const footerNote =
+    pengaturanSistem?.catatanKakiKwitansi ||
+    'Dokumen sah ini diterbitkan secara elektronik oleh Sistem Pendataan SPP.';
+  doc.text(footerNote.slice(0, 110), 14, sigY + 35);
 
   doc.save(`${pembayaran.noKwitansi}.pdf`);
 }

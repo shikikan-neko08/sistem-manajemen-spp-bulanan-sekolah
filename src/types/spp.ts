@@ -1,6 +1,13 @@
 export type ActiveRole = 'admin' | 'petugas' | 'kepala_sekolah' | 'orang_tua';
 export type UserRole = ActiveRole | 'pending';
 
+export interface HakAksesKhusus {
+  bolehBatalkanPembayaran?: boolean;
+  bolehGenerateTagihan?: boolean;
+  bolehLihatMaster?: boolean;
+  bolehLihatAudit?: boolean;
+}
+
 export interface AppUser {
   id: string;
   uid: string;
@@ -8,6 +15,8 @@ export interface AppUser {
   email: string;
   peran: UserRole;
   aktif: boolean;
+  catatanAkses?: string;
+  hakAksesKhusus?: HakAksesKhusus;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -24,14 +33,42 @@ export interface RoleInvite {
 export interface PengaturanSekolah {
   id: string;
   namaSekolah: string;
+  npsn?: string;
   alamat: string;
   telepon: string;
   email: string;
   kota: string;
   namaKepalaSekolah: string;
+  nipKepalaSekolah?: string;
   namaBank?: string;
   noRekening?: string;
   atasNamaRekening?: string;
+  prefixVaSiswa?: string;
+  updatedAt?: unknown;
+}
+
+export interface PengaturanSistem {
+  id: string;
+  midtransProductionMode: boolean;
+  midtransAktif: boolean;
+  transferManualAktif: boolean;
+  midtransEnabledPayments: string[];
+  midtransOrderPrefix: string;
+  midtransExpiryMenit: number;
+  portalOrtuAktif: boolean;
+  pesanPemeliharaanPortal?: string;
+  petugasBolehBatalkanPembayaran: boolean;
+  petugasBolehGenerateTagihan: boolean;
+  petugasBolehLihatMaster: boolean;
+  kepsekBolehLihatAudit: boolean;
+  ortuBolehCicilan: boolean;
+  autoGenerateTagihan: boolean;
+  tanggalJatuhTempo: number;
+  prefixKwitansi: string;
+  prefixPengajuanOrtu: string;
+  catatanKakiKwitansi?: string;
+  tampilkanNipKepsekDiKwitansi: boolean;
+  templateWaTunggakan?: string;
   updatedAt?: unknown;
 }
 
@@ -204,4 +241,5 @@ export type PageRoute =
   | 'tunggakan'
   | 'laporan'
   | 'audit'
+  | 'settings'
   | 'portal_ortu';

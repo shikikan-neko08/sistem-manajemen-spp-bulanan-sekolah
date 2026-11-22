@@ -37,20 +37,27 @@ export interface ProsesPembayaranInput {
   metode: MetodePembayaran;
   tanggalBayar: string;
   catatan: string;
+  prefixKwitansi?: string;
   actor: AuditActor;
 }
 
-function generateNomorKwitansi(tanggalBayar: string): string {
+function generateNomorKwitansi(tanggalBayar: string, prefix = 'KWT'): string {
+  const cleanPrefix =
+    prefix
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_-]/g, '')
+      .slice(0, 10) || 'KWT';
   const datePart = tanggalBayar.replace(/-/g, '').slice(0, 8);
   const randPart = Math.random().toString(36).substring(2, 6).toUpperCase();
   const timePart = String(Date.now()).slice(-4);
-  return `KWT-${datePart}-${timePart}${randPart}`;
+  return `${cleanPrefix}-${datePart}-${timePart}${randPart}`;
 }
 
 export async function prosesPembayaran(
   input: ProsesPembayaranInput
 ): Promise<{ pembayaran: Pembayaran; details: PembayaranDetail[] }> {
-  const { siswa, kelasNama, items, metode, tanggalBayar, catatan, actor } = input;
+  const { siswa, kelasNama, items, metode, tanggalBayar, catatan, prefixKwitansi, actor } = input;
 
   if (!items.length) {
     throw new Error('Pilih minimal satu tagihan bulan yang akan dibayar.');
@@ -74,7 +81,7 @@ export async function prosesPembayaran(
   }
 
   const pembayaranId = sanitizeId(`pay_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`);
-  const noKwitansi = generateNomorKwitansi(tanggalBayar);
+  const noKwitansi = generateNomorKwitansi(tanggalBayar, prefixKwitansi);
   const rincianBulan = items
     .map((item) => {
       const bayar = Math.round(item.bayarNominal);
@@ -267,6 +274,7 @@ export interface KirimPembayaranOrtuInput {
   namaPengirim: string;
   referensiTransfer: string;
   catatan: string;
+  prefixPengajuanOrtu?: string;
   actor: AuditActor & { email: string };
 }
 
@@ -282,6 +290,7 @@ export async function kirimPembayaranOrtu(
     namaPengirim,
     referensiTransfer,
     catatan,
+    prefixPengajuanOrtu,
     actor,
   } = input;
 
@@ -333,7 +342,13 @@ export async function kirimPembayaranOrtu(
   const datePart = tanggalTransfer.replace(/-/g, '').slice(0, 8);
   const randPart = Math.random().toString(36).substring(2, 6).toUpperCase();
   const timePart = String(Date.now()).slice(-4);
-  const kodePengajuan = `ONL-${datePart}-${timePart}${randPart}`;
+  const cleanPrefix =
+    (prefixPengajuanOrtu || 'ONL')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_-]/g, '')
+      .slice(0, 10) || 'ONL';
+  const kodePengajuan = `${cleanPrefix}-${datePart}-${timePart}${randPart}`;
 
   const rincianBulan = items
     .map((item) => {
@@ -507,9 +522,10 @@ export async function verifikasiPembayaranOrtu(params: {
   pengajuan: PembayaranOrtu;
   tagihanList: TagihanSpp[];
   actor: AuditActor;
+  prefixKwitansi?: string;
   midtransStatus?: { transactionStatus: string; paymentType: string };
 }): Promise<{ pembayaran: Pembayaran; details: PembayaranDetail[] }> {
-  const { pengajuan, tagihanList, actor, midtransStatus } = params;
+  const { pengajuan, tagihanList, actor, prefixKwitansi, midtransStatus } = params;
   if (pengajuan.status !== 'menunggu_verifikasi') {
     throw new Error('Pengajuan pembayaran ini sudah diproses sebelumnya.');
   }
@@ -533,7 +549,7 @@ export async function verifikasiPembayaranOrtu(params: {
   const pembayaranId = sanitizeId(
     `pay_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
   );
-  const noKwitansi = generateNomorKwitansi(pengajuan.tanggalTransfer);
+  const noKwitansi = generateNomorKwitansi(pengajuan.tanggalTransfer, prefixKwitansi);
   const paymentType = midtransStatus?.paymentType || pengajuan.midtransPaymentType || '';
   const noteParts = [
     pengajuan.kanal === 'midtrans'

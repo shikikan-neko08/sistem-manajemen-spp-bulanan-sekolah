@@ -50,8 +50,16 @@ interface Props {
 
 export function PembayaranPage({ preselectedSiswaId, onClearPreselect }: Props) {
   const { profile, canTransact } = useAuth();
-  const { sekolah, kelasList, siswaList, tagihanList, pembayaranList, pembayaranOrtuList } =
-    useSppData();
+  const {
+    sekolah,
+    pengaturanSistem,
+    permissions,
+    kelasList,
+    siswaList,
+    tagihanList,
+    pembayaranList,
+    pembayaranOrtuList,
+  } = useSppData();
 
   const [siswaSearch, setSiswaSearch] = useState('');
   const [selectedSiswaId, setSelectedSiswaId] = useState<string>('');
@@ -161,6 +169,7 @@ export function PembayaranPage({ preselectedSiswaId, onClearPreselect }: Props) 
         metode,
         tanggalBayar,
         catatan,
+        prefixKwitansi: pengaturanSistem.prefixKwitansi,
         actor: { uid: profile.uid, nama: profile.nama, peran: profile.peran },
       });
 
@@ -246,6 +255,7 @@ export function PembayaranPage({ preselectedSiswaId, onClearPreselect }: Props) 
       const res = await verifikasiPembayaranOrtu({
         pengajuan,
         tagihanList,
+        prefixKwitansi: pengaturanSistem.prefixKwitansi,
         actor: { uid: profile.uid, nama: profile.nama, peran: profile.peran },
         midtransStatus,
       });
@@ -283,6 +293,7 @@ export function PembayaranPage({ preselectedSiswaId, onClearPreselect }: Props) 
             await verifikasiPembayaranOrtu({
               pengajuan,
               tagihanList: liveTagihan,
+              prefixKwitansi: pengaturanSistem.prefixKwitansi,
               actor: { uid: profile.uid, nama: profile.nama, peran: profile.peran },
               midtransStatus: {
                 transactionStatus: st.transactionStatus,
@@ -868,7 +879,7 @@ export function PembayaranPage({ preselectedSiswaId, onClearPreselect }: Props) 
                         <Receipt className="w-3.5 h-3.5" />
                         Kwitansi
                       </button>
-                      {canTransact && p.status === 'sah' && (
+                      {permissions.canCancelPayment && p.status === 'sah' && (
                         <button
                           type="button"
                           onClick={() => {

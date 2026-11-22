@@ -93,12 +93,21 @@ service cloud.firestore {
     // 3. Entity Validation Blueprints
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'nama', 'email', 'peran', 'aktif', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'nama', 'email', 'peran', 'aktif', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'nama', 'email', 'peran', 'aktif', 'catatanAkses', 'hakAksesKhusus', 'createdAt', 'updatedAt'])
         && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
         && data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 120
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
         && data.peran in ['admin', 'petugas', 'kepala_sekolah', 'orang_tua', 'pending']
         && data.aktif is bool
+        && (!('catatanAkses' in data) || (data.catatanAkses is string && data.catatanAkses.size() <= 160))
+        && (!('hakAksesKhusus' in data) || (
+          data.hakAksesKhusus is map
+          && data.hakAksesKhusus.keys().hasOnly(['bolehBatalkanPembayaran', 'bolehGenerateTagihan', 'bolehLihatMaster', 'bolehLihatAudit'])
+          && (!('bolehBatalkanPembayaran' in data.hakAksesKhusus) || data.hakAksesKhusus.bolehBatalkanPembayaran is bool)
+          && (!('bolehGenerateTagihan' in data.hakAksesKhusus) || data.hakAksesKhusus.bolehGenerateTagihan is bool)
+          && (!('bolehLihatMaster' in data.hakAksesKhusus) || data.hakAksesKhusus.bolehLihatMaster is bool)
+          && (!('bolehLihatAudit' in data.hakAksesKhusus) || data.hakAksesKhusus.bolehLihatAudit is bool)
+        ))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -115,16 +124,62 @@ service cloud.firestore {
 
     function isValidPengaturanSekolah(data) {
       return data.keys().hasAll(['namaSekolah', 'alamat', 'telepon', 'email', 'kota', 'namaKepalaSekolah', 'updatedAt'])
-        && data.keys().hasOnly(['namaSekolah', 'alamat', 'telepon', 'email', 'kota', 'namaKepalaSekolah', 'namaBank', 'noRekening', 'atasNamaRekening', 'updatedAt'])
+        && data.keys().hasOnly(['namaSekolah', 'npsn', 'alamat', 'telepon', 'email', 'kota', 'namaKepalaSekolah', 'nipKepalaSekolah', 'namaBank', 'noRekening', 'atasNamaRekening', 'prefixVaSiswa', 'updatedAt'])
         && data.namaSekolah is string && data.namaSekolah.size() >= 2 && data.namaSekolah.size() <= 160
+        && (!('npsn' in data) || (data.npsn is string && data.npsn.size() <= 30))
         && data.alamat is string && data.alamat.size() <= 300
         && data.telepon is string && data.telepon.size() <= 40
         && data.email is string && data.email.size() <= 120
         && data.kota is string && data.kota.size() >= 1 && data.kota.size() <= 80
         && data.namaKepalaSekolah is string && data.namaKepalaSekolah.size() <= 120
+        && (!('nipKepalaSekolah' in data) || (data.nipKepalaSekolah is string && data.nipKepalaSekolah.size() <= 40))
         && (!('namaBank' in data) || (data.namaBank is string && data.namaBank.size() <= 80))
         && (!('noRekening' in data) || (data.noRekening is string && data.noRekening.size() <= 60))
         && (!('atasNamaRekening' in data) || (data.atasNamaRekening is string && data.atasNamaRekening.size() <= 120))
+        && (!('prefixVaSiswa' in data) || (data.prefixVaSiswa is string && data.prefixVaSiswa.size() <= 12))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPengaturanSistem(data) {
+      return data.keys().hasAll([
+          'midtransProductionMode', 'midtransAktif', 'transferManualAktif',
+          'midtransEnabledPayments', 'midtransOrderPrefix', 'midtransExpiryMenit',
+          'portalOrtuAktif', 'petugasBolehBatalkanPembayaran', 'petugasBolehGenerateTagihan',
+          'petugasBolehLihatMaster', 'kepsekBolehLihatAudit', 'ortuBolehCicilan',
+          'autoGenerateTagihan', 'tanggalJatuhTempo', 'prefixKwitansi',
+          'prefixPengajuanOrtu', 'tampilkanNipKepsekDiKwitansi', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'midtransProductionMode', 'midtransAktif', 'transferManualAktif',
+          'midtransEnabledPayments', 'midtransOrderPrefix', 'midtransExpiryMenit',
+          'portalOrtuAktif', 'pesanPemeliharaanPortal', 'petugasBolehBatalkanPembayaran',
+          'petugasBolehGenerateTagihan', 'petugasBolehLihatMaster', 'kepsekBolehLihatAudit',
+          'ortuBolehCicilan', 'autoGenerateTagihan', 'tanggalJatuhTempo', 'prefixKwitansi',
+          'prefixPengajuanOrtu', 'catatanKakiKwitansi', 'tampilkanNipKepsekDiKwitansi',
+          'templateWaTunggakan', 'updatedAt'
+        ])
+        && data.midtransProductionMode is bool
+        && data.midtransAktif is bool
+        && data.transferManualAktif is bool
+        && data.midtransEnabledPayments is list
+        && data.midtransEnabledPayments.size() <= 15
+        && (data.midtransEnabledPayments.size() == 0 || (data.midtransEnabledPayments[0] is string && data.midtransEnabledPayments[0].size() <= 40))
+        && data.midtransOrderPrefix is string && data.midtransOrderPrefix.size() >= 2 && data.midtransOrderPrefix.size() <= 10
+        && data.midtransExpiryMenit is number && data.midtransExpiryMenit >= 15 && data.midtransExpiryMenit <= 10080
+        && data.portalOrtuAktif is bool
+        && (!('pesanPemeliharaanPortal' in data) || (data.pesanPemeliharaanPortal is string && data.pesanPemeliharaanPortal.size() <= 300))
+        && data.petugasBolehBatalkanPembayaran is bool
+        && data.petugasBolehGenerateTagihan is bool
+        && data.petugasBolehLihatMaster is bool
+        && data.kepsekBolehLihatAudit is bool
+        && data.ortuBolehCicilan is bool
+        && data.autoGenerateTagihan is bool
+        && data.tanggalJatuhTempo is number && data.tanggalJatuhTempo >= 1 && data.tanggalJatuhTempo <= 28
+        && data.prefixKwitansi is string && data.prefixKwitansi.size() >= 2 && data.prefixKwitansi.size() <= 10
+        && data.prefixPengajuanOrtu is string && data.prefixPengajuanOrtu.size() >= 2 && data.prefixPengajuanOrtu.size() <= 10
+        && (!('catatanKakiKwitansi' in data) || (data.catatanKakiKwitansi is string && data.catatanKakiKwitansi.size() <= 300))
+        && data.tampilkanNipKepsekDiKwitansi is bool
+        && (!('templateWaTunggakan' in data) || (data.templateWaTunggakan is string && data.templateWaTunggakan.size() <= 600))
         && data.updatedAt is timestamp;
     }
 
@@ -306,6 +361,8 @@ service cloud.firestore {
         && request.auth.uid == userId
         && isValidUser(incoming())
         && incoming().uid == userId
+        && !('hakAksesKhusus' in incoming())
+        && !('catatanAkses' in incoming())
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
         && (
@@ -317,6 +374,7 @@ service cloud.firestore {
         && isVerified()
         && isValidUser(incoming())
         && incoming().uid == existing().uid
+        && incoming().email == existing().email
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
@@ -346,6 +404,14 @@ service cloud.firestore {
       allow list: if isStaff() || isParent();
       allow create: if isValidId(settingId) && isAdmin() && isValidPengaturanSekolah(incoming()) && incoming().updatedAt == request.time;
       allow update: if isValidId(settingId) && isAdmin() && isValidPengaturanSekolah(incoming()) && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /pengaturan_sistem/{configId} {
+      allow get: if isValidId(configId) && (isStaff() || isParent());
+      allow list: if isStaff() || isParent();
+      allow create: if isValidId(configId) && isAdmin() && isValidPengaturanSistem(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isValidId(configId) && isAdmin() && isValidPengaturanSistem(incoming()) && incoming().updatedAt == request.time;
       allow delete: if false;
     }
 

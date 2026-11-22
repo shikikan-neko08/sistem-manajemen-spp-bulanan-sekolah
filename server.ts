@@ -5,7 +5,9 @@ import path from 'node:path';
 import {
   createMidtransTransaction,
   fetchMidtransStatus,
+  getMidtransAdminDiagnostics,
   getMidtransPublicConfig,
+  testMidtransApiConnection,
   verifyFirebaseBearer,
   verifyMidtransWebhookNotification,
   type CreateMidtransTransactionInput,
@@ -32,8 +34,35 @@ async function startServer() {
   app.use(express.json({ limit: '1mb' }));
 
   // Midtrans public client configuration (never exposes MIDTRANS_SERVER_KEY)
-  app.get('/api/midtrans/config', (_req, res) => {
-    res.json(getMidtransPublicConfig());
+  app.get('/api/midtrans/config', async (req, res) => {
+    try {
+      const cfg = await getMidtransPublicConfig(req.headers.authorization);
+      res.json(cfg);
+    } catch {
+      res.status(500).json({ error: 'Gagal memuat konfigurasi Midtrans.' });
+    }
+  });
+
+  // Admin-only: Server key diagnostics & endpoints (never returns server keys)
+  app.get('/api/midtrans/admin-diagnostics', async (req, res) => {
+    try {
+      const diag = await getMidtransAdminDiagnostics(req.headers.authorization);
+      res.json(diag);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Gagal memeriksa diagnostik Midtrans.';
+      res.status(getErrorStatus(msg)).json({ error: cleanErrorMessage(msg) });
+    }
+  });
+
+  // Admin-only: Live connection check against active Sandbox/Production Midtrans API
+  app.post('/api/midtrans/test-connection', async (req, res) => {
+    try {
+      const result = await testMidtransApiConnection(req.headers.authorization);
+      res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Gagal menguji koneksi Midtrans.';
+      res.status(getErrorStatus(msg)).json({ error: cleanErrorMessage(msg) });
+    }
   });
 
   // Protected: Create Midtrans Snap transaction token
@@ -43,17 +72,20 @@ async function startServer() {
       const body = (req.body || {}) as Partial<CreateMidtransTransactionInput>;
 
       const originHeader = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
-      const result = await createMidtransTransaction({
-        siswaId: String(body.siswaId || ''),
-        siswaNis: String(body.siswaNis || ''),
-        siswaNama: String(body.siswaNama || ''),
-        kelasNama: String(body.kelasNama || ''),
-        customerName: String(body.customerName || caller.name || ''),
-        customerEmail: caller.email || String(body.customerEmail || ''),
-        customerPhone: String(body.customerPhone || ''),
-        items: Array.isArray(body.items) ? body.items : [],
-        finishCallbackUrl: process.env.APP_URL || originHeader,
-      });
+      const result = await createMidtransTransaction(
+        {
+          siswaId: String(body.siswaId || ''),
+          siswaNis: String(body.siswaNis || ''),
+          siswaNama: String(body.siswaNama || ''),
+          kelasNama: String(body.kelasNama || ''),
+          customerName: String(body.customerName || caller.name || ''),
+          customerEmail: caller.email || String(body.customerEmail || ''),
+          customerPhone: String(body.customerPhone || ''),
+          items: Array.isArray(body.items) ? body.items : [],
+          finishCallbackUrl: process.env.APP_URL || originHeader,
+        },
+        caller.idToken
+      );
 
       res.json(result);
     } catch (err) {
@@ -65,8 +97,8 @@ async function startServer() {
   // Protected: Authoritative status check from Midtrans Core API
   app.get('/api/midtrans/status/:orderId', async (req, res) => {
     try {
-      await verifyFirebaseBearer(req.headers.authorization);
-      const status = await fetchMidtransStatus(req.params.orderId);
+      const caller = await verifyFirebaseBearer(req.headers.authorization);
+      const status = await fetchMidtransStatus(req.params.orderId, caller.idToken);
       res.json(status);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Gagal memeriksa status transaksi Midtrans.';

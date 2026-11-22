@@ -8,6 +8,7 @@
 5. **Audit Trail Integrity**: Catatan `log_aktivitas` bersifat *append-only* (`allow update, delete: if false`) dan `actorUid` wajib sama dengan `request.auth.uid`.
 6. **PII Protection**: Data akun (`users`) hanya dapat dibaca oleh pemilik akun sendiri atau `admin`. Data siswa, tagihan, dan pembayaran yang diakses oleh `orang_tua` dibatasi secara ketat berdasarkan `emailOrtu` yang terverifikasi pada token Auth.
 7. **Parent Payment Separation**: Orang tua hanya dapat mengajukan pembayaran online pada koleksi `pembayaran_ortu` berstatus `'menunggu_verifikasi'` untuk siswa yang tertaut ke emailnya (baik konfirmasi transfer manual maupun pembayaran melalui gateway Midtrans Snap). Orang tua hanya boleh menyinkronkan metadata status Midtrans (`midtransTransactionStatus`, `midtransPaymentType`) dari server dan tidak pernah dapat mengubah `status` menjadi `'diverifikasi'`, mengubah `tagihan_spp`, atau menerbitkan `pembayaran` sah secara sepihak tanpa verifikasi `petugas`/`admin` (yang memverifikasi status settlement langsung via API server Midtrans).
+8. **System & Gateway Configuration Integrity**: Dokumen pada `pengaturan_sistem` dan `pengaturan_sekolah` hanya boleh dibuat atau diubah oleh `admin`. Kunci rahasia payment gateway (`MIDTRANS_SERVER_KEY`) tidak pernah disimpan di Firestore maupun dikirim ke browser, melainkan dikelola eksklusif di server `process.env`.
 
 ## 2. The "Dirty Dozen" Payloads (Adversarial Tests)
 1. **Self-Admin Escalation**: User baru mencoba `create` di `/users/{uid}` dengan `peran: 'admin'`. -> `PERMISSION_DENIED`.

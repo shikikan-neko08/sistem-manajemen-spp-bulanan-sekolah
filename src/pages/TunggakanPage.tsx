@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react';
-import { CreditCard, Download, FileSpreadsheet, Search } from 'lucide-react';
+import { Check, Copy, CreditCard, Download, FileSpreadsheet, MessageSquare, Search } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.tsx';
 import { useSppData } from '../contexts/SppDataContext.tsx';
-import { formatRupiah, NAMA_BULAN, namaBulan } from '../lib/format.ts';
+import {
+  DEFAULT_PENGATURAN_SISTEM,
+  formatRupiah,
+  NAMA_BULAN,
+  namaBulan,
+} from '../lib/format.ts';
 import { eksporLaporanExcel, eksporLaporanPdf } from '../services/exportService.ts';
 import type { Siswa } from '../types/spp.ts';
 
@@ -10,15 +15,25 @@ interface Props {
   onBayarSiswa: (siswaId: string) => void;
 }
 
+function normalizeWaPhone(raw: string): string {
+  const digits = raw.replace(/[^0-9]/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('0')) return `62${digits.slice(1)}`;
+  if (digits.startsWith('62')) return digits;
+  if (digits.startsWith('8')) return `62${digits}`;
+  return digits;
+}
+
 export function TunggakanPage({ onBayarSiswa }: Props) {
   const { canTransact } = useAuth();
-  const { sekolah, kelasList, siswaList, tagihanList } = useSppData();
+  const { sekolah, pengaturanSistem, kelasList, siswaList, tagihanList } = useSppData();
 
   const now = new Date();
   const [filterKelas, setFilterKelas] = useState('all');
   const [filterBulan, setFilterBulan] = useState<string>('all');
   const [filterTahun, setFilterTahun] = useState<string>(String(now.getFullYear()));
   const [searchQuery, setSearchQuery] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const kelasMap = useMemo(() => new Map(kelasList.map((k) => [k.id, k.nama])), [kelasList]);
   const siswaMap = useMemo(() => new Map(siswaList.map((s) => [s.id, s])), [siswaList]);
@@ -232,36 +247,87 @@ export function TunggakanPage({ onBayarSiswa }: Props) {
                   </td>
                 </tr>
               ) : (
-                tunggakanRows.map((row) => (
-                  <tr key={row.siswa.id} className="hover:bg-slate-50/70">
-                    <td className="py-2.5 px-4">
-                      <div className="font-medium text-slate-900">{row.siswa.nama}</div>
-                      <div className="text-xs font-mono text-slate-500">{row.siswa.nis}</div>
-                    </td>
-                    <td className="py-2.5 px-4 text-slate-700">{row.kelasNama}</td>
-                    <td className="py-2.5 px-4 font-mono text-xs text-slate-600">
-                      {row.siswa.noHpOrtu || '-'}
-                    </td>
-                    <td className="py-2.5 px-4 text-xs text-slate-600 max-w-xs">
-                      {row.bulanMenunggak.join(', ')}
-                    </td>
-                    <td className="py-2.5 px-4 text-right font-mono tabular-nums font-bold text-red-700 whitespace-nowrap">
-                      {formatRupiah(row.totalTunggakan)}
-                    </td>
-                    {canTransact && (
-                      <td className="py-2.5 px-4 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => onBayarSiswa(row.siswa.id)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-md"
-                        >
-                          <CreditCard className="w-3.5 h-3.5" />
-                          Bayar
-                        </button>
+                tunggakanRows.map((row) => {
+                  const tpl =
+                    pengaturanSistem.templateWaTunggakan ||
+                    DEFAULT_PENGATURAN_SISTEM.templateWaTunggakan;
+                  const waMsg = tpl
+                    .replaceAll('{nama_siswa}', row.siswa.nama)
+                    .replaceAll('{nis}', row.siswa.nis)
+                    .replaceAll('{kelas}', row.kelasNama)
+                    .replaceAll('{bulan_menunggak}', row.bulanMenunggak.join(', '))
+                    .replaceAll('{total_tunggakan}', formatRupiah(row.totalTunggakan))
+                    .replaceAll(
+                      '{nama_sekolah}',
+                      sekolah?.namaSekolah || 'SMA Negeri 1 Nusantara'
+                    );
+                  const waPhone = normalizeWaPhone(row.siswa.noHpOrtu || '');
+                  const waHref = waPhone
+                    ? `https://wa.me/${waPhone}?text=${encodeURIComponent(waMsg)}`
+                    : '';
+
+                  return (
+                    <tr key={row.siswa.id} className="hover:bg-slate-50/70">
+                      <td className="py-2.5 px-4">
+                        <div className="font-medium text-slate-900">{row.siswa.nama}</div>
+                        <div className="text-xs font-mono text-slate-500">{row.siswa.nis}</div>
                       </td>
-                    )}
-                  </tr>
-                ))
+                      <td className="py-2.5 px-4 text-slate-700">{row.kelasNama}</td>
+                      <td className="py-2.5 px-4 font-mono text-xs text-slate-600">
+                        {row.siswa.noHpOrtu || '-'}
+                      </td>
+                      <td className="py-2.5 px-4 text-xs text-slate-600 max-w-xs">
+                        {row.bulanMenunggak.join(', ')}
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono tabular-nums font-bold text-red-700 whitespace-nowrap">
+                        {formatRupiah(row.totalTunggakan)}
+                      </td>
+                      {canTransact && (
+                        <td className="py-2.5 px-4 text-right whitespace-nowrap space-x-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                                void navigator.clipboard.writeText(waMsg);
+                                setCopiedId(row.siswa.id);
+                                window.setTimeout(() => setCopiedId(null), 1800);
+                              }
+                            }}
+                            title="Salin pesan pengingat WhatsApp"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md"
+                          >
+                            {copiedId === row.siswa.id ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-700" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                            {copiedId === row.siswa.id ? 'Tersalin' : 'Salin WA'}
+                          </button>
+                          {waHref && (
+                            <a
+                              href={waHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Buka WhatsApp dengan pesan otomatis"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-md"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              WA
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => onBayarSiswa(row.siswa.id)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-md"
+                          >
+                            <CreditCard className="w-3.5 h-3.5" />
+                            Bayar
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

@@ -10,7 +10,15 @@ import type { StatusTagihan } from '../types/spp.ts';
 
 export function TagihanPage() {
   const { profile, canManageMaster, canTransact } = useAuth();
-  const { tahunAjaranAktif, kelasList, tarifList, siswaList, tagihanList } = useSppData();
+  const {
+    pengaturanSistem,
+    permissions,
+    tahunAjaranAktif,
+    kelasList,
+    tarifList,
+    siswaList,
+    tagihanList,
+  } = useSppData();
 
   const now = new Date();
   const [selectedBulan, setSelectedBulan] = useState(now.getMonth() + 1);
@@ -35,8 +43,11 @@ export function TagihanPage() {
   const [tTahun, setTTahun] = useState(now.getFullYear());
   const [tTarif, setTTarif] = useState('0');
   const [tDiskon, setTDiskon] = useState('0');
+  const defaultDueDay = String(
+    Math.min(28, Math.max(1, Math.round(pengaturanSistem.tanggalJatuhTempo || 10)))
+  ).padStart(2, '0');
   const [tJatuhTempo, setTJatuhTempo] = useState(
-    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-10`
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${defaultDueDay}`
   );
   const [savingTagihan, setSavingTagihan] = useState(false);
   const [tagihanModalError, setTagihanModalError] = useState<string | null>(null);
@@ -67,7 +78,7 @@ export function TagihanPage() {
     const { nominalDiskon } = hitungDiskon(tarifNominal, s.diskonTipe, s.diskonNilai);
     setTTarif(String(tarifNominal));
     setTDiskon(String(nominalDiskon));
-    setTJatuhTempo(`${tahun}-${String(bulan).padStart(2, '0')}-10`);
+    setTJatuhTempo(`${tahun}-${String(bulan).padStart(2, '0')}-${defaultDueDay}`);
   };
 
   const openTambahTagihanModal = () => {
@@ -137,6 +148,7 @@ export function TagihanPage() {
         kelasList,
         tarifList,
         existingTagihan: tagihanList,
+        tanggalJatuhTempo: pengaturanSistem.tanggalJatuhTempo,
         actor,
       });
       setGenMessage(
@@ -252,15 +264,17 @@ export function TagihanPage() {
                 Tambah Tagihan
               </button>
 
-              <button
-                type="button"
-                disabled={generating || !tahunAjaranAktif}
-                onClick={() => void handleGenerateManual()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap"
-              >
-                <CalendarPlus className="w-4 h-4" />
-                {generating ? 'Memproses...' : 'Generate Massal'}
-              </button>
+              {permissions.canGenerateTagihan && (
+                <button
+                  type="button"
+                  disabled={generating || !tahunAjaranAktif}
+                  onClick={() => void handleGenerateManual()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap"
+                >
+                  <CalendarPlus className="w-4 h-4" />
+                  {generating ? 'Memproses...' : 'Generate Massal'}
+                </button>
+              )}
             </>
           )}
 
@@ -507,7 +521,7 @@ export function TagihanPage() {
                     onChange={(e) => {
                       const b = Number(e.target.value);
                       setTBulan(b);
-                      setTJatuhTempo(`${tTahun}-${String(b).padStart(2, '0')}-10`);
+                      setTJatuhTempo(`${tTahun}-${String(b).padStart(2, '0')}-${defaultDueDay}`);
                     }}
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
                   >
@@ -528,7 +542,7 @@ export function TagihanPage() {
                     onChange={(e) => {
                       const y = Number(e.target.value) || now.getFullYear();
                       setTTahun(y);
-                      setTJatuhTempo(`${y}-${String(tBulan).padStart(2, '0')}-10`);
+                      setTJatuhTempo(`${y}-${String(tBulan).padStart(2, '0')}-${defaultDueDay}`);
                     }}
                     required
                     className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"

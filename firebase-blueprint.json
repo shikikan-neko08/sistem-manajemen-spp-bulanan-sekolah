@@ -10,6 +10,8 @@
         "email": { "type": "string", "format": "email", "maxLength": 160 },
         "peran": { "type": "string", "enum": ["admin", "petugas", "kepala_sekolah", "orang_tua", "pending"] },
         "aktif": { "type": "boolean" },
+        "catatanAkses": { "type": "string", "maxLength": 160 },
+        "hakAksesKhusus": { "type": "object" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -34,17 +36,68 @@
       "type": "object",
       "properties": {
         "namaSekolah": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "npsn": { "type": "string", "maxLength": 30 },
         "alamat": { "type": "string", "maxLength": 300 },
         "telepon": { "type": "string", "maxLength": 40 },
         "email": { "type": "string", "maxLength": 120 },
         "kota": { "type": "string", "maxLength": 80 },
         "namaKepalaSekolah": { "type": "string", "maxLength": 120 },
+        "nipKepalaSekolah": { "type": "string", "maxLength": 40 },
         "namaBank": { "type": "string", "maxLength": 80 },
         "noRekening": { "type": "string", "maxLength": 60 },
         "atasNamaRekening": { "type": "string", "maxLength": 120 },
+        "prefixVaSiswa": { "type": "string", "maxLength": 12 },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["namaSekolah", "alamat", "kota", "updatedAt"]
+    },
+    "PengaturanSistem": {
+      "title": "PengaturanSistem",
+      "description": "Pengaturan sistem terpusat untuk mode production, payment gateway Midtrans, kebijakan hak akses peran, tagihan, kwitansi, dan notifikasi.",
+      "type": "object",
+      "properties": {
+        "midtransProductionMode": { "type": "boolean" },
+        "midtransAktif": { "type": "boolean" },
+        "transferManualAktif": { "type": "boolean" },
+        "midtransEnabledPayments": { "type": "array" },
+        "midtransOrderPrefix": { "type": "string", "minLength": 2, "maxLength": 10 },
+        "midtransExpiryMenit": { "type": "number" },
+        "portalOrtuAktif": { "type": "boolean" },
+        "pesanPemeliharaanPortal": { "type": "string", "maxLength": 300 },
+        "petugasBolehBatalkanPembayaran": { "type": "boolean" },
+        "petugasBolehGenerateTagihan": { "type": "boolean" },
+        "petugasBolehLihatMaster": { "type": "boolean" },
+        "kepsekBolehLihatAudit": { "type": "boolean" },
+        "ortuBolehCicilan": { "type": "boolean" },
+        "autoGenerateTagihan": { "type": "boolean" },
+        "tanggalJatuhTempo": { "type": "number" },
+        "prefixKwitansi": { "type": "string", "minLength": 2, "maxLength": 10 },
+        "prefixPengajuanOrtu": { "type": "string", "minLength": 2, "maxLength": 10 },
+        "catatanKakiKwitansi": { "type": "string", "maxLength": 300 },
+        "tampilkanNipKepsekDiKwitansi": { "type": "boolean" },
+        "templateWaTunggakan": { "type": "string", "maxLength": 600 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "midtransProductionMode",
+        "midtransAktif",
+        "transferManualAktif",
+        "midtransEnabledPayments",
+        "midtransOrderPrefix",
+        "midtransExpiryMenit",
+        "portalOrtuAktif",
+        "petugasBolehBatalkanPembayaran",
+        "petugasBolehGenerateTagihan",
+        "petugasBolehLihatMaster",
+        "kepsekBolehLihatAudit",
+        "ortuBolehCicilan",
+        "autoGenerateTagihan",
+        "tanggalJatuhTempo",
+        "prefixKwitansi",
+        "prefixPengajuanOrtu",
+        "tampilkanNipKepsekDiKwitansi",
+        "updatedAt"
+      ]
     },
     "TahunAjaran": {
       "title": "TahunAjaran",
@@ -253,6 +306,10 @@
     "/pengaturan_sekolah/{settingId}": {
       "schema": { "$ref": "#/entities/PengaturanSekolah" },
       "description": "Pengaturan profil sekolah dan rekening pembayaran resmi."
+    },
+    "/pengaturan_sistem/{configId}": {
+      "schema": { "$ref": "#/entities/PengaturanSistem" },
+      "description": "Pengaturan sistem, mode production Midtrans, hak akses peran, dan otomasi operasional."
     },
     "/tahun_ajaran/{tahunAjaranId}": {
       "schema": { "$ref": "#/entities/TahunAjaran" },

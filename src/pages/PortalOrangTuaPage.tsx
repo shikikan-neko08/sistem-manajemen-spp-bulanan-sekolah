@@ -54,6 +54,8 @@ export function PortalOrangTuaPage() {
   const { profile, previewRole } = useAuth();
   const {
     sekolah,
+    pengaturanSistem,
+    permissions,
     tahunAjaranAktif,
     kelasList,
     siswaList,
@@ -103,8 +105,11 @@ export function PortalOrangTuaPage() {
           setMidtransConfig({
             configured: false,
             isProduction: false,
+            midtransAktif: pengaturanSistem.midtransAktif,
+            transferManualAktif: pengaturanSistem.transferManualAktif,
             clientKey: '',
             snapScriptUrl: 'https://app.sandbox.midtrans.com/snap/snap.js',
+            keyModeMismatch: false,
           });
         }
       })
@@ -114,7 +119,19 @@ export function PortalOrangTuaPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [pengaturanSistem.midtransAktif, pengaturanSistem.transferManualAktif]);
+
+  const midtransEnabled = midtransConfig?.midtransAktif ?? pengaturanSistem.midtransAktif;
+  const manualEnabled =
+    midtransConfig?.transferManualAktif ?? pengaturanSistem.transferManualAktif;
+
+  useEffect(() => {
+    if (!midtransEnabled && manualEnabled) {
+      setPaymentMode('manual');
+    } else if (midtransEnabled && !manualEnabled) {
+      setPaymentMode('midtrans');
+    }
+  }, [midtransEnabled, manualEnabled]);
 
   const [activeKwitansi, setActiveKwitansi] = useState<{
     pembayaran: Pembayaran;
@@ -199,6 +216,8 @@ export function PortalOrangTuaPage() {
       const next = { ...prev };
       if (next[t.id] !== undefined) {
         delete next[t.id];
+      } else if (!permissions.ortuBolehCicilan) {
+        next[t.id] = t.sisaTagihan;
       } else {
         const alreadyPending = pendingByTagihan.get(t.id) || 0;
         const suggested = Math.max(0, t.sisaTagihan - alreadyPending);
@@ -209,6 +228,7 @@ export function PortalOrangTuaPage() {
   };
 
   const updateNominal = (tagihanId: string, val: number, max: number) => {
+    if (!permissions.ortuBolehCicilan) return;
     const clamped = Math.max(0, Math.min(max, Math.round(val || 0)));
     setSelectedTagihanMap((prev) => ({
       ...prev,
@@ -425,6 +445,7 @@ export function PortalOrangTuaPage() {
         namaPengirim,
         referensiTransfer,
         catatan,
+        prefixPengajuanOrtu: pengaturanSistem.prefixPengajuanOrtu,
         actor: {
           uid: profile.uid,
           nama: profile.nama,
@@ -482,10 +503,26 @@ export function PortalOrangTuaPage() {
     );
   }
 
-  const vaNumber = selectedSiswa ? virtualAccountSiswa(selectedSiswa.nis) : '';
+  const vaNumber = selectedSiswa
+    ? virtualAccountSiswa(selectedSiswa.nis, sekolah?.prefixVaSiswa)
+    : '';
   const namaBank = sekolah?.namaBank || 'Bank BRI / BCA (Hubungi Tata Usaha)';
   const noRekening = sekolah?.noRekening || '';
   const atasNama = sekolah?.atasNamaRekening || sekolah?.namaSekolah || 'Bendahara Sekolah';
+
+  if (!permissions.portalOrtuAktif && !isAdminPreview) {
+    return (
+      <div className="bg-white border border-amber-200 rounded-xl p-6 sm:p-8 max-w-2xl space-y-3">
+        <h2 className="text-base font-semibold text-slate-900">
+          Portal Pembayaran Orang Tua Sedang Dinonaktifkan
+        </h2>
+        <p className="text-sm text-slate-600 leading-relaxed">
+          {pengaturanSistem.pesanPemeliharaanPortal ||
+            'Portal pembayaran sedang dalam pemeliharaan terjadwal. Silakan hubungi Tata Usaha sekolah untuk informasi lebih lanjut.'}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -626,7 +663,9 @@ export function PortalOrangTuaPage() {
                   1. Pilih Tagihan SPP yang Dibayar
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Mendukung pembayaran beberapa bulan sekaligus maupun cicilan sebagian.
+                  {permissions.ortuBolehCicilan
+                    ? 'Mendukung pembayaran beberapa bulan sekaligus maupun cicilan sebagian.'
+                    : 'Mendukung pembayaran beberapa bulan sekaligus (pelunasan penuh per bulan yang dipilih).'}
                 </p>
               </div>
               {unpaidTagihan.length > 1 && (
@@ -700,16 +739,22 @@ export function PortalOrangTuaPage() {
                       {checked && (
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-xs text-slate-500">Nominal:</span>
-                          <input
-                            type="number"
-                            min={1}
-                            max={t.sisaTagihan}
-                            value={selectedTagihanMap[t.id]}
-                            onChange={(e) =>
-                              updateNominal(t.id, Number(e.target.value), t.sisaTagihan)
-                            }
-                            className="w-36 px-2.5 py-1.5 text-sm font-mono tabular-nums border border-slate-300 rounded-md bg-white text-right"
-                          />
+                          {permissions.ortuBolehCicilan ? (
+                            <input
+                              type="number"
+                              min={1}
+                              max={t.sisaTagihan}
+                              value={selectedTagihanMap[t.id]}
+                              onChange={(e) =>
+                                updateNominal(t.id, Number(e.target.value), t.sisaTagihan)
+                              }
+                              className="w-36 px-2.5 py-1.5 text-sm font-mono tabular-nums border border-slate-300 rounded-md bg-white text-right"
+                            />
+                          ) : (
+                            <span className="px-2.5 py-1.5 text-sm font-mono tabular-nums font-semibold text-teal-800 bg-white border border-slate-200 rounded-md">
+                              {formatRupiah(selectedTagihanMap[t.id])}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -733,33 +778,42 @@ export function PortalOrangTuaPage() {
               </p>
             </div>
 
-            {/* Pemilih Mode Utama: Midtrans vs Transfer Manual */}
-            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg">
-              <button
-                type="button"
-                onClick={() => setPaymentMode('midtrans')}
-                className={`py-2 px-2.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
-                  paymentMode === 'midtrans'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Midtrans (Instan)
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentMode('manual')}
-                className={`py-2 px-2.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
-                  paymentMode === 'manual'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Transfer Manual
-              </button>
-            </div>
+            {!midtransEnabled && !manualEnabled ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
+                Seluruh kanal pembayaran online sedang dinonaktifkan sementara oleh Admin sekolah.
+                Silakan lakukan pembayaran melalui loket Tata Usaha sekolah.
+              </div>
+            ) : (
+              <>
+                {/* Pemilih Mode Utama: Midtrans vs Transfer Manual */}
+                {midtransEnabled && manualEnabled && (
+                  <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('midtrans')}
+                      className={`py-2 px-2.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                        paymentMode === 'midtrans'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Midtrans (Instan)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('manual')}
+                      className={`py-2 px-2.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                        paymentMode === 'manual'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Transfer Manual
+                    </button>
+                  </div>
+                )}
 
-            {paymentMode === 'midtrans' ? (
+                {paymentMode === 'midtrans' && midtransEnabled ? (
               <div className="space-y-4">
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3 text-xs">
                   <div className="flex items-center justify-between gap-2">
@@ -1002,6 +1056,8 @@ export function PortalOrangTuaPage() {
                   <Send className="w-4 h-4" />
                   {submitting ? 'Mengirim Konfirmasi...' : 'Kirim Konfirmasi Pembayaran'}
                 </button>
+              </>
+            )}
               </>
             )}
           </form>

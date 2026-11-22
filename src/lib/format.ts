@@ -158,7 +158,59 @@ export function labelMidtransStatus(status?: string): string {
   }
 }
 
-export function virtualAccountSiswa(nis: string): string {
+export function virtualAccountSiswa(nis: string, prefix = '88102'): string {
+  const cleanPrefix = (prefix || '88102').replace(/[^0-9]/g, '') || '88102';
   const digits = nis.replace(/[^0-9]/g, '');
-  return `88102${digits.padStart(10, '0').slice(-10)}`;
+  return `${cleanPrefix}${digits.padStart(10, '0').slice(-10)}`;
 }
+
+export const MIDTRANS_PAYMENT_CHANNELS: Array<{ id: string; label: string; group: string }> = [
+  { id: 'qris', label: 'QRIS (Semua E-Wallet & Mobile Banking)', group: 'Instan / QR' },
+  { id: 'gopay', label: 'GoPay', group: 'E-Wallet' },
+  { id: 'shopeepay', label: 'ShopeePay', group: 'E-Wallet' },
+  { id: 'bca_va', label: 'BCA Virtual Account', group: 'Virtual Account' },
+  { id: 'bni_va', label: 'BNI Virtual Account', group: 'Virtual Account' },
+  { id: 'bri_va', label: 'BRI Virtual Account', group: 'Virtual Account' },
+  { id: 'permata_va', label: 'Permata Virtual Account', group: 'Virtual Account' },
+  { id: 'echannel', label: 'Mandiri Bill Payment', group: 'Virtual Account' },
+  { id: 'other_va', label: 'VA Bank Lainnya', group: 'Virtual Account' },
+  { id: 'credit_card', label: 'Kartu Kredit / Debit', group: 'Kartu' },
+  { id: 'alfamart', label: 'Alfamart', group: 'Gerai Retail' },
+  { id: 'indomaret', label: 'Indomaret', group: 'Gerai Retail' },
+];
+
+export const DEFAULT_PENGATURAN_SISTEM = {
+  id: 'default',
+  midtransProductionMode: false,
+  midtransAktif: true,
+  transferManualAktif: true,
+  midtransEnabledPayments: [
+    'qris',
+    'gopay',
+    'shopeepay',
+    'bca_va',
+    'bni_va',
+    'bri_va',
+    'permata_va',
+    'echannel',
+  ],
+  midtransOrderPrefix: 'SPP',
+  midtransExpiryMenit: 1440,
+  portalOrtuAktif: true,
+  pesanPemeliharaanPortal:
+    'Portal pembayaran sedang dalam pemeliharaan terjadwal. Silakan hubungi Tata Usaha sekolah untuk informasi lebih lanjut.',
+  petugasBolehBatalkanPembayaran: true,
+  petugasBolehGenerateTagihan: true,
+  petugasBolehLihatMaster: true,
+  kepsekBolehLihatAudit: true,
+  ortuBolehCicilan: true,
+  autoGenerateTagihan: true,
+  tanggalJatuhTempo: 10,
+  prefixKwitansi: 'KWT',
+  prefixPengajuanOrtu: 'ONL',
+  catatanKakiKwitansi: 'Simpan kwitansi ini sebagai bukti pembayaran SPP yang sah.',
+  tampilkanNipKepsekDiKwitansi: false,
+  templateWaTunggakan:
+    'Yth. Bapak/Ibu Wali Murid dari {nama_siswa} (NIS: {nis}, Kelas {kelas}). Menginformasikan tagihan SPP yang belum terbayar sebesar {total_tunggakan}. Mohon segera melakukan pembayaran melalui Portal Orang Tua atau loket Tata Usaha {nama_sekolah}. Terima kasih.',
+};
+

@@ -3,8 +3,33 @@ import { auth } from '../lib/firebase.ts';
 export interface MidtransPublicConfig {
   configured: boolean;
   isProduction: boolean;
+  midtransAktif: boolean;
+  transferManualAktif: boolean;
   clientKey: string;
   snapScriptUrl: string;
+  keyModeMismatch: boolean;
+}
+
+export interface MidtransAdminDiagnostics {
+  activeConfigured: boolean;
+  sandboxConfigured: boolean;
+  productionConfigured: boolean;
+  isProduction: boolean;
+  envFallbackIsProduction: boolean;
+  keyModeMismatch: boolean;
+  clientKeyMasked: string;
+  sandboxClientKeyMasked: string;
+  productionClientKeyMasked: string;
+  snapBaseUrl: string;
+  coreApiBaseUrl: string;
+  snapScriptUrl: string;
+}
+
+export interface MidtransConnectionTestResult {
+  ok: boolean;
+  isProduction: boolean;
+  statusCode: number;
+  message: string;
 }
 
 export interface MidtransCreateOrderResponse {
@@ -60,11 +85,53 @@ async function getBearerToken(): Promise<string> {
 }
 
 export async function getMidtransConfig(): Promise<MidtransPublicConfig> {
-  const res = await fetch('/api/midtrans/config');
+  const headers: Record<string, string> = {};
+  if (auth.currentUser) {
+    try {
+      headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+    } catch {
+      // Fallback to unauthenticated config check
+    }
+  }
+  const res = await fetch('/api/midtrans/config', { headers });
   if (!res.ok) {
     throw new Error('Gagal memeriksa konfigurasi Midtrans di server.');
   }
   return (await res.json()) as MidtransPublicConfig;
+}
+
+export async function getMidtransAdminDiagnostics(): Promise<MidtransAdminDiagnostics> {
+  const idToken = await getBearerToken();
+  const res = await fetch('/api/midtrans/admin-diagnostics', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+    },
+  });
+  const data = (await res.json().catch(() => ({}))) as MidtransAdminDiagnostics & {
+    error?: string;
+  };
+  if (!res.ok) {
+    throw new Error(data.error || 'Gagal memuat diagnostik Midtrans server.');
+  }
+  return data;
+}
+
+export async function testMidtransConnection(): Promise<MidtransConnectionTestResult> {
+  const idToken = await getBearerToken();
+  const res = await fetch('/api/midtrans/test-connection', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+    },
+  });
+  const data = (await res.json().catch(() => ({}))) as MidtransConnectionTestResult & {
+    error?: string;
+  };
+  if (!res.ok) {
+    throw new Error(data.error || 'Gagal menguji koneksi API Midtrans.');
+  }
+  return data;
 }
 
 export async function createMidtransOrder(params: {
