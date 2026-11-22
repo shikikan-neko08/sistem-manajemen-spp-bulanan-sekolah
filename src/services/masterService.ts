@@ -2,10 +2,13 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase.ts';
@@ -31,15 +34,18 @@ export async function simpanPengaturanSekolah(
   const path = 'pengaturan_sekolah/default';
   try {
     await setDoc(doc(db, 'pengaturan_sekolah', 'default'), {
-      namaSekolah: data.namaSekolah.trim(),
-      alamat: data.alamat.trim(),
-      telepon: data.telepon.trim(),
-      email: data.email.trim(),
-      kota: data.kota.trim(),
-      namaKepalaSekolah: data.namaKepalaSekolah.trim(),
+      namaSekolah: data.namaSekolah.trim().slice(0, 160),
+      alamat: data.alamat.trim().slice(0, 300),
+      telepon: data.telepon.trim().slice(0, 40),
+      email: data.email.trim().slice(0, 120),
+      kota: data.kota.trim().slice(0, 80),
+      namaKepalaSekolah: data.namaKepalaSekolah.trim().slice(0, 120),
+      namaBank: (data.namaBank || '').trim().slice(0, 80),
+      noRekening: (data.noRekening || '').trim().slice(0, 60),
+      atasNamaRekening: (data.atasNamaRekening || '').trim().slice(0, 120),
       updatedAt: serverTimestamp(),
     });
-    await catatLog(actor, 'UPDATE', 'pengaturan_sekolah', 'default', `Memperbarui profil sekolah: ${data.namaSekolah}`);
+    await catatLog(actor, 'UPDATE', 'pengaturan_sekolah', 'default', `Memperbarui profil & rekening sekolah: ${data.namaSekolah}`);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -173,9 +179,38 @@ export interface SiswaInput {
   kelasId: string;
   statusAktif: StatusSiswa;
   noHpOrtu: string;
+  emailOrtu?: string;
   diskonTipe: DiskonTipe;
   diskonNilai: number;
   keteranganDiskon: string;
+}
+
+async function syncEmailOrtuPadaTransaksi(siswaId: string, emailOrtu: string): Promise<void> {
+  const targets = ['tagihan_spp', 'pembayaran', 'pembayaran_detail'] as const;
+  const ops: Array<{ col: string; id: string; data: Record<string, unknown> }> = [];
+
+  for (const colName of targets) {
+    const snap = await getDocs(query(collection(db, colName), where('siswaId', '==', siswaId)));
+    for (const d of snap.docs) {
+      const currentEmail = String((d.data() as { emailOrtu?: string }).emailOrtu || '').toLowerCase();
+      if (currentEmail !== emailOrtu) {
+        const updateData: Record<string, unknown> = { emailOrtu };
+        if (colName === 'tagihan_spp') {
+          updateData.updatedAt = serverTimestamp();
+        }
+        ops.push({ col: colName, id: d.id, data: updateData });
+      }
+    }
+  }
+
+  const CHUNK = 400;
+  for (let i = 0; i < ops.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    for (const op of ops.slice(i, i + CHUNK)) {
+      batch.update(doc(db, op.col, op.id), op.data);
+    }
+    await batch.commit();
+  }
 }
 
 export async function simpanSiswa(
@@ -186,11 +221,15 @@ export async function simpanSiswa(
   const nis = input.nis.trim();
   const nama = input.nama.trim();
   const noHpOrtu = input.noHpOrtu.trim();
+  const emailOrtu = (input.emailOrtu || '').trim().toLowerCase();
   const keteranganDiskon = input.keteranganDiskon.trim();
 
   if (nis.length < 3) throw new Error('NIS minimal 3 karakter.');
   if (nama.length < 2) throw new Error('Nama siswa minimal 2 karakter.');
   if (!input.kelasId) throw new Error('Kelas wajib dipilih.');
+  if (emailOrtu && (!emailOrtu.includes('@') || !emailOrtu.includes('.'))) {
+    throw new Error('Format email orang tua tidak valid.');
+  }
   if (input.diskonTipe === 'persen' && (input.diskonNilai < 0 || input.diskonNilai > 100)) {
     throw new Error('Persentase diskon harus antara 0% sampai 100%.');
   }
@@ -215,6 +254,7 @@ export async function simpanSiswa(
     kelasId: input.kelasId,
     statusAktif: input.statusAktif,
     noHpOrtu,
+    emailOrtu: emailOrtu.slice(0, 160),
     diskonTipe: input.diskonTipe,
     diskonNilai: input.diskonTipe === 'none' ? 0 : Math.round(input.diskonNilai),
     keteranganDiskon: input.diskonTipe === 'none' ? '' : keteranganDiskon,
@@ -224,6 +264,7 @@ export async function simpanSiswa(
   try {
     if (isEdit) {
       await updateDoc(doc(db, 'siswa', id), payload);
+      await syncEmailOrtuPadaTransaksi(id, emailOrtu);
       await catatLog(actor, 'UPDATE', 'siswa', id, `Mengubah data siswa ${nama} (NIS: ${nis})`);
     } else {
       await setDoc(doc(db, 'siswa', id), {
@@ -232,6 +273,22 @@ export async function simpanSiswa(
       });
       await catatLog(actor, 'CREATE', 'siswa', id, `Menambah siswa baru ${nama} (NIS: ${nis})`);
     }
+
+    if (emailOrtu) {
+      const inviteId = emailToKey(emailOrtu);
+      const inviteRef = doc(db, 'role_invites', inviteId);
+      const inviteSnap = await getDoc(inviteRef);
+      if (!inviteSnap.exists()) {
+        await setDoc(inviteRef, {
+          email: emailOrtu.slice(0, 160),
+          nama: `Orang Tua ${nama}`.slice(0, 120),
+          peran: 'orang_tua',
+          createdBy: actor.uid,
+          createdAt: serverTimestamp(),
+        });
+      }
+    }
+
     return id;
   } catch (error) {
     handleFirestoreError(error, isEdit ? OperationType.UPDATE : OperationType.CREATE, path);

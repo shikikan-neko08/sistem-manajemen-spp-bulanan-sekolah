@@ -2,13 +2,13 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "Pengguna sistem SPP dengan peran Admin, Petugas/Bendahara, atau Kepala Sekolah.",
+      "description": "Pengguna sistem SPP dengan peran Admin, Petugas/Bendahara, Kepala Sekolah, atau Orang Tua/Wali.",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
         "nama": { "type": "string", "minLength": 1, "maxLength": 120 },
         "email": { "type": "string", "format": "email", "maxLength": 160 },
-        "peran": { "type": "string", "enum": ["admin", "petugas", "kepala_sekolah", "pending"] },
+        "peran": { "type": "string", "enum": ["admin", "petugas", "kepala_sekolah", "orang_tua", "pending"] },
         "aktif": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
@@ -22,7 +22,7 @@
       "properties": {
         "email": { "type": "string", "format": "email", "maxLength": 160 },
         "nama": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "peran": { "type": "string", "enum": ["admin", "petugas", "kepala_sekolah"] },
+        "peran": { "type": "string", "enum": ["admin", "petugas", "kepala_sekolah", "orang_tua"] },
         "createdBy": { "type": "string", "maxLength": 128 },
         "createdAt": { "type": "string", "format": "date-time" }
       },
@@ -30,7 +30,7 @@
     },
     "PengaturanSekolah": {
       "title": "PengaturanSekolah",
-      "description": "Profil identitas sekolah untuk kop kwitansi dan laporan.",
+      "description": "Profil identitas sekolah & rekening pembayaran resmi untuk kop kwitansi dan portal orang tua.",
       "type": "object",
       "properties": {
         "namaSekolah": { "type": "string", "minLength": 2, "maxLength": 160 },
@@ -39,6 +39,9 @@
         "email": { "type": "string", "maxLength": 120 },
         "kota": { "type": "string", "maxLength": 80 },
         "namaKepalaSekolah": { "type": "string", "maxLength": 120 },
+        "namaBank": { "type": "string", "maxLength": 80 },
+        "noRekening": { "type": "string", "maxLength": 60 },
+        "atasNamaRekening": { "type": "string", "maxLength": 120 },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["namaSekolah", "alamat", "kota", "updatedAt"]
@@ -80,7 +83,7 @@
     },
     "Siswa": {
       "title": "Siswa",
-      "description": "Data induk siswa SMA beserta status aktif, kontak orang tua, dan diskon/beasiswa.",
+      "description": "Data induk siswa SMA beserta status aktif, kontak & email orang tua, dan diskon/beasiswa.",
       "type": "object",
       "properties": {
         "nis": { "type": "string", "minLength": 3, "maxLength": 30 },
@@ -88,6 +91,7 @@
         "kelasId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "statusAktif": { "type": "string", "enum": ["aktif", "lulus", "pindah", "nonaktif"] },
         "noHpOrtu": { "type": "string", "maxLength": 30 },
+        "emailOrtu": { "type": "string", "maxLength": 160 },
         "diskonTipe": { "type": "string", "enum": ["none", "nominal", "persen"] },
         "diskonNilai": { "type": "number" },
         "keteranganDiskon": { "type": "string", "maxLength": 160 },
@@ -104,6 +108,7 @@
         "siswaId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "kelasId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "tahunAjaranId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "emailOrtu": { "type": "string", "maxLength": 160 },
         "bulan": { "type": "number" },
         "tahun": { "type": "number" },
         "nominalTarif": { "type": "number" },
@@ -129,6 +134,7 @@
         "siswaNama": { "type": "string", "maxLength": 120 },
         "kelasNama": { "type": "string", "maxLength": 60 },
         "kelasId": { "type": "string", "maxLength": 128 },
+        "emailOrtu": { "type": "string", "maxLength": 160 },
         "tanggalBayar": { "type": "string", "maxLength": 30 },
         "metode": { "type": "string", "enum": ["tunai", "transfer"] },
         "totalBayar": { "type": "number" },
@@ -152,6 +158,7 @@
         "pembayaranId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "tagihanId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "siswaId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "emailOrtu": { "type": "string", "maxLength": 160 },
         "bulan": { "type": "number" },
         "tahun": { "type": "number" },
         "nominalDialokasikan": { "type": "number" },
@@ -159,6 +166,63 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["pembayaranId", "tagihanId", "siswaId", "bulan", "tahun", "nominalDialokasikan", "status", "createdAt"]
+    },
+    "PembayaranOrtu": {
+      "title": "PembayaranOrtu",
+      "description": "Pengajuan pembayaran SPP online oleh orang tua siswa yang menunggu verifikasi bendahara atau telah diproses.",
+      "type": "object",
+      "properties": {
+        "kodePengajuan": { "type": "string", "minLength": 5, "maxLength": 60 },
+        "siswaId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "siswaNis": { "type": "string", "maxLength": 30 },
+        "siswaNama": { "type": "string", "maxLength": 120 },
+        "kelasId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "kelasNama": { "type": "string", "maxLength": 60 },
+        "orangTuaUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "orangTuaNama": { "type": "string", "maxLength": 120 },
+        "emailOrtu": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "tanggalTransfer": { "type": "string", "minLength": 8, "maxLength": 30 },
+        "kanal": { "type": "string", "enum": ["midtrans", "transfer_bank", "qris", "virtual_account"] },
+        "namaPengirim": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "referensiTransfer": { "type": "string", "maxLength": 100 },
+        "catatan": { "type": "string", "maxLength": 300 },
+        "totalBayar": { "type": "number" },
+        "rincianBulan": { "type": "string", "maxLength": 500 },
+        "items": { "type": "array" },
+        "status": { "type": "string", "enum": ["menunggu_verifikasi", "diverifikasi", "ditolak"] },
+        "pembayaranId": { "type": "string", "maxLength": 128 },
+        "noKwitansi": { "type": "string", "maxLength": 60 },
+        "diprosesOleh": { "type": "string", "maxLength": 120 },
+        "diprosesPada": { "type": "string", "maxLength": 40 },
+        "alasanTolak": { "type": "string", "maxLength": 300 },
+        "midtransOrderId": { "type": "string", "maxLength": 80 },
+        "midtransSnapToken": { "type": "string", "maxLength": 160 },
+        "midtransRedirectUrl": { "type": "string", "maxLength": 300 },
+        "midtransTransactionStatus": { "type": "string", "maxLength": 40 },
+        "midtransPaymentType": { "type": "string", "maxLength": 60 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "kodePengajuan",
+        "siswaId",
+        "siswaNis",
+        "siswaNama",
+        "kelasId",
+        "kelasNama",
+        "orangTuaUid",
+        "orangTuaNama",
+        "emailOrtu",
+        "tanggalTransfer",
+        "kanal",
+        "namaPengirim",
+        "totalBayar",
+        "rincianBulan",
+        "items",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "LogAktivitas": {
       "title": "LogAktivitas",
@@ -188,7 +252,7 @@
     },
     "/pengaturan_sekolah/{settingId}": {
       "schema": { "$ref": "#/entities/PengaturanSekolah" },
-      "description": "Pengaturan profil sekolah."
+      "description": "Pengaturan profil sekolah dan rekening pembayaran resmi."
     },
     "/tahun_ajaran/{tahunAjaranId}": {
       "schema": { "$ref": "#/entities/TahunAjaran" },
@@ -217,6 +281,10 @@
     "/pembayaran_detail/{detailId}": {
       "schema": { "$ref": "#/entities/PembayaranDetail" },
       "description": "Detail alokasi pembayaran ke tagihan bulanan."
+    },
+    "/pembayaran_ortu/{pengajuanId}": {
+      "schema": { "$ref": "#/entities/PembayaranOrtu" },
+      "description": "Pengajuan pembayaran online dari portal orang tua."
     },
     "/log_aktivitas/{logId}": {
       "schema": { "$ref": "#/entities/LogAktivitas" },

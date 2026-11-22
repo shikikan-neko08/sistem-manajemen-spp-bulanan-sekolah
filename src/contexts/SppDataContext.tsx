@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase.ts';
 import { generateTagihanBulanan } from '../services/tagihanService.ts';
 import type {
@@ -7,6 +7,7 @@ import type {
   Kelas,
   LogAktivitas,
   Pembayaran,
+  PembayaranOrtu,
   PengaturanSekolah,
   RoleInvite,
   Siswa,
@@ -25,6 +26,7 @@ interface SppDataContextValue {
   siswaList: Siswa[];
   tagihanList: TagihanSpp[];
   pembayaranList: Pembayaran[];
+  pembayaranOrtuList: PembayaranOrtu[];
   logList: LogAktivitas[];
   usersList: AppUser[];
   roleInvites: RoleInvite[];
@@ -35,15 +37,30 @@ interface SppDataContextValue {
 
 const SppDataContext = createContext<SppDataContextValue | null>(null);
 
+function tsToMillis(ts: unknown): number {
+  if (!ts) return 0;
+  try {
+    const maybe = ts as { toMillis?: () => number; seconds?: number };
+    if (typeof maybe.toMillis === 'function') return maybe.toMillis();
+    if (typeof maybe.seconds === 'number') return maybe.seconds * 1000;
+  } catch {
+    return 0;
+  }
+  return 0;
+}
+
 export function SppDataProvider({ children }: { children: React.ReactNode }) {
   const { profile, firebaseUser } = useAuth();
-  const isAuthorizedStaff =
+  const isActiveVerified =
     Boolean(firebaseUser) &&
     Boolean(profile) &&
     profile?.aktif === true &&
     profile?.peran !== 'pending';
+  const isParentAccount = isActiveVerified && profile?.peran === 'orang_tua';
+  const isStaffAccount = isActiveVerified && !isParentAccount;
   const isAdmin = profile?.peran === 'admin';
   const canSeeAudit = profile?.peran === 'admin' || profile?.peran === 'kepala_sekolah';
+  const parentEmail = (firebaseUser?.email || profile?.email || '').trim().toLowerCase();
 
   const [sekolah, setSekolah] = useState<PengaturanSekolah | null>(null);
   const [tahunAjaranList, setTahunAjaranList] = useState<TahunAjaran[]>([]);
@@ -52,6 +69,7 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
   const [siswaList, setSiswaList] = useState<Siswa[]>([]);
   const [tagihanList, setTagihanList] = useState<TagihanSpp[]>([]);
   const [pembayaranList, setPembayaranList] = useState<Pembayaran[]>([]);
+  const [pembayaranOrtuList, setPembayaranOrtuList] = useState<PembayaranOrtu[]>([]);
   const [logList, setLogList] = useState<LogAktivitas[]>([]);
   const [usersList, setUsersList] = useState<AppUser[]>([]);
   const [roleInvites, setRoleInvites] = useState<RoleInvite[]>([]);
@@ -61,7 +79,7 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
   const autoGenAttemptedRef = useRef(false);
 
   useEffect(() => {
-    if (!isAuthorizedStaff) {
+    if (!isActiveVerified) {
       setSekolah(null);
       setTahunAjaranList([]);
       setKelasList([]);
@@ -69,6 +87,7 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
       setSiswaList([]);
       setTagihanList([]);
       setPembayaranList([]);
+      setPembayaranOrtuList([]);
       setLogList([]);
       setUsersList([]);
       setRoleInvites([]);
@@ -78,9 +97,10 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
 
     setLoadingData(true);
     let loadedFlags = 0;
+    const expectedFlags = isParentAccount ? 5 : 6;
     const markLoaded = () => {
       loadedFlags += 1;
-      if (loadedFlags >= 6) {
+      if (loadedFlags >= expectedFlags) {
         setLoadingData(false);
       }
     };
@@ -123,94 +143,174 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
       )
     );
 
-    unsubs.push(
-      onSnapshot(
-        collection(db, 'tarif_spp'),
-        (snap) => {
-          setTarifList(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TarifSpp, 'id'>) })));
-          markLoaded();
-        },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'tarif_spp')
-      )
-    );
+    if (isParentAccount) {
+      setTarifList([]);
+      setLogList([]);
+      setUsersList([]);
+      setRoleInvites([]);
 
-    unsubs.push(
-      onSnapshot(
-        query(collection(db, 'siswa'), orderBy('nama')),
-        (snap) => {
-          setSiswaList(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Siswa, 'id'>) })));
-          markLoaded();
-        },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'siswa')
-      )
-    );
+      if (!parentEmail) {
+        setSiswaList([]);
+        setTagihanList([]);
+        setPembayaranList([]);
+        setPembayaranOrtuList([]);
+        setLoadingData(false);
+      } else {
+        unsubs.push(
+          onSnapshot(
+            query(collection(db, 'siswa'), where('emailOrtu', '==', parentEmail)),
+            (snap) => {
+              const list = snap.docs
+                .map((d) => ({ id: d.id, ...(d.data() as Omit<Siswa, 'id'>) }))
+                .sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+              setSiswaList(list);
+              markLoaded();
+            },
+            (err) => handleFirestoreError(err, OperationType.LIST, 'siswa')
+          )
+        );
 
-    unsubs.push(
-      onSnapshot(
-        collection(db, 'tagihan_spp'),
-        (snap) => {
-          setTagihanList(
-            snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TagihanSpp, 'id'>) }))
-          );
-          markLoaded();
-        },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'tagihan_spp')
-      )
-    );
+        unsubs.push(
+          onSnapshot(
+            query(collection(db, 'tagihan_spp'), where('emailOrtu', '==', parentEmail)),
+            (snap) => {
+              setTagihanList(
+                snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TagihanSpp, 'id'>) }))
+              );
+              markLoaded();
+            },
+            (err) => handleFirestoreError(err, OperationType.LIST, 'tagihan_spp')
+          )
+        );
 
-    unsubs.push(
-      onSnapshot(
-        query(collection(db, 'pembayaran'), orderBy('createdAt', 'desc')),
-        (snap) => {
-          setPembayaranList(
-            snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Pembayaran, 'id'>) }))
-          );
-        },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'pembayaran')
-      )
-    );
+        unsubs.push(
+          onSnapshot(
+            query(collection(db, 'pembayaran'), where('emailOrtu', '==', parentEmail)),
+            (snap) => {
+              const list = snap.docs
+                .map((d) => ({ id: d.id, ...(d.data() as Omit<Pembayaran, 'id'>) }))
+                .sort((a, b) => tsToMillis(b.createdAt) - tsToMillis(a.createdAt));
+              setPembayaranList(list);
+            },
+            (err) => handleFirestoreError(err, OperationType.LIST, 'pembayaran')
+          )
+        );
 
-    if (canSeeAudit) {
+        unsubs.push(
+          onSnapshot(
+            query(collection(db, 'pembayaran_ortu'), where('emailOrtu', '==', parentEmail)),
+            (snap) => {
+              const list = snap.docs
+                .map((d) => ({ id: d.id, ...(d.data() as Omit<PembayaranOrtu, 'id'>) }))
+                .sort((a, b) => tsToMillis(b.createdAt) - tsToMillis(a.createdAt));
+              setPembayaranOrtuList(list);
+            },
+            (err) => handleFirestoreError(err, OperationType.LIST, 'pembayaran_ortu')
+          )
+        );
+      }
+    } else if (isStaffAccount) {
       unsubs.push(
         onSnapshot(
-          query(collection(db, 'log_aktivitas'), orderBy('createdAt', 'desc')),
+          collection(db, 'tarif_spp'),
           (snap) => {
-            setLogList(
-              snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<LogAktivitas, 'id'>) }))
+            setTarifList(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TarifSpp, 'id'>) })));
+            markLoaded();
+          },
+          (err) => handleFirestoreError(err, OperationType.LIST, 'tarif_spp')
+        )
+      );
+
+      unsubs.push(
+        onSnapshot(
+          query(collection(db, 'siswa'), orderBy('nama')),
+          (snap) => {
+            setSiswaList(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Siswa, 'id'>) })));
+            markLoaded();
+          },
+          (err) => handleFirestoreError(err, OperationType.LIST, 'siswa')
+        )
+      );
+
+      unsubs.push(
+        onSnapshot(
+          collection(db, 'tagihan_spp'),
+          (snap) => {
+            setTagihanList(
+              snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TagihanSpp, 'id'>) }))
+            );
+            markLoaded();
+          },
+          (err) => handleFirestoreError(err, OperationType.LIST, 'tagihan_spp')
+        )
+      );
+
+      unsubs.push(
+        onSnapshot(
+          query(collection(db, 'pembayaran'), orderBy('createdAt', 'desc')),
+          (snap) => {
+            setPembayaranList(
+              snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Pembayaran, 'id'>) }))
             );
           },
-          (err) => handleFirestoreError(err, OperationType.LIST, 'log_aktivitas')
+          (err) => handleFirestoreError(err, OperationType.LIST, 'pembayaran')
         )
       );
-    }
 
-    if (isAdmin) {
       unsubs.push(
         onSnapshot(
-          collection(db, 'users'),
+          query(collection(db, 'pembayaran_ortu'), orderBy('createdAt', 'desc')),
           (snap) => {
-            setUsersList(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AppUser, 'id'>) })));
-          },
-          (err) => handleFirestoreError(err, OperationType.LIST, 'users')
-        )
-      );
-      unsubs.push(
-        onSnapshot(
-          collection(db, 'role_invites'),
-          (snap) => {
-            setRoleInvites(
-              snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<RoleInvite, 'id'>) }))
+            setPembayaranOrtuList(
+              snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<PembayaranOrtu, 'id'>) }))
             );
           },
-          (err) => handleFirestoreError(err, OperationType.LIST, 'role_invites')
+          (err) => handleFirestoreError(err, OperationType.LIST, 'pembayaran_ortu')
         )
       );
+
+      if (canSeeAudit) {
+        unsubs.push(
+          onSnapshot(
+            query(collection(db, 'log_aktivitas'), orderBy('createdAt', 'desc')),
+            (snap) => {
+              setLogList(
+                snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<LogAktivitas, 'id'>) }))
+              );
+            },
+            (err) => handleFirestoreError(err, OperationType.LIST, 'log_aktivitas')
+          )
+        );
+      }
+
+      if (isAdmin) {
+        unsubs.push(
+          onSnapshot(
+            collection(db, 'users'),
+            (snap) => {
+              setUsersList(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AppUser, 'id'>) })));
+            },
+            (err) => handleFirestoreError(err, OperationType.LIST, 'users')
+          )
+        );
+        unsubs.push(
+          onSnapshot(
+            collection(db, 'role_invites'),
+            (snap) => {
+              setRoleInvites(
+                snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<RoleInvite, 'id'>) }))
+              );
+            },
+            (err) => handleFirestoreError(err, OperationType.LIST, 'role_invites')
+          )
+        );
+      }
     }
 
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, [isAuthorizedStaff, isAdmin, canSeeAudit]);
+  }, [isActiveVerified, isParentAccount, isStaffAccount, isAdmin, canSeeAudit, parentEmail]);
 
   const tahunAjaranAktif = useMemo(
     () => tahunAjaranList.find((t) => t.aktif) || tahunAjaranList[0] || null,
@@ -273,6 +373,7 @@ export function SppDataProvider({ children }: { children: React.ReactNode }) {
         siswaList,
         tagihanList,
         pembayaranList,
+        pembayaranOrtuList,
         logList,
         usersList,
         roleInvites,

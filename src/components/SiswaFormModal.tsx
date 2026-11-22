@@ -28,6 +28,7 @@ export function SiswaFormModal({
   const [kelasId, setKelasId] = useState('');
   const [statusAktif, setStatusAktif] = useState<StatusSiswa>('aktif');
   const [noHpOrtu, setNoHpOrtu] = useState('');
+  const [emailOrtu, setEmailOrtu] = useState('');
   const [diskonTipe, setDiskonTipe] = useState<DiskonTipe>('none');
   const [diskonNilai, setDiskonNilai] = useState('0');
   const [keteranganDiskon, setKeteranganDiskon] = useState('');
@@ -43,6 +44,7 @@ export function SiswaFormModal({
       setKelasId(editingSiswa.kelasId);
       setStatusAktif(editingSiswa.statusAktif);
       setNoHpOrtu(editingSiswa.noHpOrtu);
+      setEmailOrtu(editingSiswa.emailOrtu || '');
       setDiskonTipe(editingSiswa.diskonTipe);
       setDiskonNilai(String(editingSiswa.diskonNilai));
       setKeteranganDiskon(editingSiswa.keteranganDiskon);
@@ -52,6 +54,7 @@ export function SiswaFormModal({
       setKelasId(kelasList[0]?.id || '');
       setStatusAktif('aktif');
       setNoHpOrtu('');
+      setEmailOrtu('');
       setDiskonTipe('none');
       setDiskonNilai('0');
       setKeteranganDiskon('');
@@ -73,6 +76,7 @@ export function SiswaFormModal({
           kelasId,
           statusAktif,
           noHpOrtu,
+          emailOrtu,
           diskonTipe,
           diskonNilai: Number(diskonNilai) || 0,
           keteranganDiskon,
@@ -188,6 +192,22 @@ export function SiswaFormModal({
               <option value="pindah">Pindah</option>
               <option value="nonaktif">Nonaktif</option>
             </select>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Email Akun Orang Tua / Wali (Opsional)
+            </label>
+            <input
+              type="email"
+              value={emailOrtu}
+              onChange={(e) => setEmailOrtu(e.target.value)}
+              placeholder="Contoh: ortu.siswa@gmail.com"
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Orang tua dapat login ke website menggunakan email ini untuk melihat tagihan &amp;
+              membayar SPP online.
+            </p>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">

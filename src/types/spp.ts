@@ -1,5 +1,5 @@
-export type UserRole = 'admin' | 'petugas' | 'kepala_sekolah' | 'pending';
-export type ActiveRole = 'admin' | 'petugas' | 'kepala_sekolah';
+export type ActiveRole = 'admin' | 'petugas' | 'kepala_sekolah' | 'orang_tua';
+export type UserRole = ActiveRole | 'pending';
 
 export interface AppUser {
   id: string;
@@ -29,6 +29,9 @@ export interface PengaturanSekolah {
   email: string;
   kota: string;
   namaKepalaSekolah: string;
+  namaBank?: string;
+  noRekening?: string;
+  atasNamaRekening?: string;
   updatedAt?: unknown;
 }
 
@@ -67,6 +70,7 @@ export interface Siswa {
   kelasId: string;
   statusAktif: StatusSiswa;
   noHpOrtu: string;
+  emailOrtu?: string;
   diskonTipe: DiskonTipe;
   diskonNilai: number;
   keteranganDiskon: string;
@@ -81,6 +85,7 @@ export interface TagihanSpp {
   siswaId: string;
   kelasId: string;
   tahunAjaranId: string;
+  emailOrtu?: string;
   bulan: number;
   tahun: number;
   nominalTarif: number;
@@ -105,6 +110,7 @@ export interface Pembayaran {
   siswaNama: string;
   kelasId: string;
   kelasNama: string;
+  emailOrtu?: string;
   tanggalBayar: string;
   metode: MetodePembayaran;
   totalBayar: number;
@@ -124,11 +130,56 @@ export interface PembayaranDetail {
   pembayaranId: string;
   tagihanId: string;
   siswaId: string;
+  emailOrtu?: string;
   bulan: number;
   tahun: number;
   nominalDialokasikan: number;
   status: StatusPembayaran;
   createdAt?: unknown;
+}
+
+export type KanalPembayaranOrtu = 'midtrans' | 'transfer_bank' | 'qris' | 'virtual_account';
+export type StatusPembayaranOrtu = 'menunggu_verifikasi' | 'diverifikasi' | 'ditolak';
+
+export interface PembayaranOrtuItem {
+  tagihanId: string;
+  bulan: number;
+  tahun: number;
+  bayarNominal: number;
+}
+
+export interface PembayaranOrtu {
+  id: string;
+  kodePengajuan: string;
+  siswaId: string;
+  siswaNis: string;
+  siswaNama: string;
+  kelasId: string;
+  kelasNama: string;
+  orangTuaUid: string;
+  orangTuaNama: string;
+  emailOrtu: string;
+  tanggalTransfer: string;
+  kanal: KanalPembayaranOrtu;
+  namaPengirim: string;
+  referensiTransfer: string;
+  catatan: string;
+  totalBayar: number;
+  rincianBulan: string;
+  items: PembayaranOrtuItem[];
+  status: StatusPembayaranOrtu;
+  pembayaranId: string;
+  noKwitansi: string;
+  diprosesOleh: string;
+  diprosesPada: string;
+  alasanTolak: string;
+  midtransOrderId?: string;
+  midtransSnapToken?: string;
+  midtransRedirectUrl?: string;
+  midtransTransactionStatus?: string;
+  midtransPaymentType?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }
 
 export type AksiAudit = 'CREATE' | 'UPDATE' | 'DELETE' | 'CANCEL' | 'GENERATE' | 'SEED';
@@ -152,4 +203,5 @@ export type PageRoute =
   | 'pembayaran'
   | 'tunggakan'
   | 'laporan'
-  | 'audit';
+  | 'audit'
+  | 'portal_ortu';

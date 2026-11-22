@@ -1,20 +1,45 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Ban, CheckSquare, CreditCard, Receipt, Search, X } from 'lucide-react';
+import {
+  Ban,
+  CheckCircle2,
+  CheckSquare,
+  Clock,
+  CreditCard,
+  Receipt,
+  RefreshCw,
+  Search,
+  X,
+  XCircle,
+} from 'lucide-react';
 import { KwitansiPrintModal } from '../components/KwitansiPrintModal.tsx';
-import { StatusPembayaranBadge, StatusTagihanBadge } from '../components/StatusBadge.tsx';
+import {
+  StatusPembayaranBadge,
+  StatusPembayaranOrtuBadge,
+  StatusTagihanBadge,
+} from '../components/StatusBadge.tsx';
 import { useAuth } from '../contexts/AuthContext.tsx';
 import { useSppData } from '../contexts/SppDataContext.tsx';
 import {
   formatRupiah,
   formatTanggalSingkat,
+  labelKanalOrtu,
+  labelMidtransStatus,
   namaBulan,
   todayIsoDate,
 } from '../lib/format.ts';
-import { batalkanPembayaran, prosesPembayaran } from '../services/pembayaranService.ts';
+import { checkMidtransOrderStatus, isMidtransSettled } from '../services/midtransClientService.ts';
+import {
+  batalkanPembayaran,
+  prosesPembayaran,
+  sinkronStatusMidtransOrtu,
+  tolakPembayaranOrtu,
+  verifikasiPembayaranOrtu,
+} from '../services/pembayaranService.ts';
 import type {
   MetodePembayaran,
   Pembayaran,
   PembayaranDetail,
+  PembayaranOrtu,
   TagihanSpp,
 } from '../types/spp.ts';
 
@@ -25,7 +50,8 @@ interface Props {
 
 export function PembayaranPage({ preselectedSiswaId, onClearPreselect }: Props) {
   const { profile, canTransact } = useAuth();
-  const { sekolah, kelasList, siswaList, tagihanList, pembayaranList } = useSppData();
+  const { sekolah, kelasList, siswaList, tagihanList, pembayaranList, pembayaranOrtuList } =
+    useSppData();
 
   const [siswaSearch, setSiswaSearch] = useState('');
   const [selectedSiswaId, setSelectedSiswaId] = useState<string>('');
@@ -48,6 +74,14 @@ export function PembayaranPage({ preselectedSiswaId, onClearPreselect }: Props) 
   const [cancelTarget, setCancelTarget] = useState<Pembayaran | null>(null);
   const [alasanBatal, setAlasanBatal] = useState('');
   const [canceling, setCanceling] = useState(false);
+
+  // Verifikasi pembayaran orang tua
+  const [processingOrtuId, setProcessingOrtuId] = useState<string | null>(null);
+  const [syncingMidtrans, setSyncingMidtrans] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState<PembayaranOrtu | null>(null);
+  const [alasanTolak, setAlasanTolak] = useState('');
+  const [rejecting, setRejecting] = useState(false);
+  const [showProcessedOrtu, setShowProcessedOrtu] = useState(false);
 
   const kelasMap = useMemo(() => new Map(kelasList.map((k) => [k.id, k.nama])), [kelasList]);
   const siswaMap = useMemo(() => new Map(siswaList.map((s) => [s.id, s])), [siswaList]);
@@ -169,6 +203,161 @@ export function PembayaranPage({ preselectedSiswaId, onClearPreselect }: Props) 
     }
   };
 
+  const pendingOrtu = useMemo(
+    () => pembayaranOrtuList.filter((p) => p.status === 'menunggu_verifikasi'),
+    [pembayaranOrtuList]
+  );
+
+  const processedOrtu = useMemo(
+    () => pembayaranOrtuList.filter((p) => p.status !== 'menunggu_verifikasi').slice(0, 15),
+    [pembayaranOrtuList]
+  );
+
+  const handleVerifikasiOrtu = async (pengajuan: PembayaranOrtu) => {
+    if (!profile) return;
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setProcessingOrtuId(pengajuan.id);
+    try {
+      let midtransStatus: { transactionStatus: string; paymentType: string } | undefined;
+
+      if (pengajuan.kanal === 'midtrans') {
+        const orderId = pengajuan.midtransOrderId || pengajuan.kodePengajuan;
+        const st = await checkMidtransOrderStatus(orderId);
+        if (!isMidtransSettled(st.transactionStatus, st.fraudStatus)) {
+          await sinkronStatusMidtransOrtu({
+            pengajuanId: pengajuan.id,
+            transactionStatus: st.transactionStatus,
+            paymentType: st.paymentType,
+          });
+          setErrorMsg(
+            `Status Midtrans untuk ${orderId} masih "${labelMidtransStatus(
+              st.transactionStatus
+            )}". Kwitansi resmi hanya dapat diterbitkan setelah pembayaran lunas (Settlement / Capture).`
+          );
+          return;
+        }
+        midtransStatus = {
+          transactionStatus: st.transactionStatus,
+          paymentType: st.paymentType,
+        };
+      }
+
+      const res = await verifikasiPembayaranOrtu({
+        pengajuan,
+        tagihanList,
+        actor: { uid: profile.uid, nama: profile.nama, peran: profile.peran },
+        midtransStatus,
+      });
+      setSuccessMsg(
+        `Pembayaran online ${pengajuan.kodePengajuan} a.n. ${pengajuan.siswaNama} telah diverifikasi. Kwitansi ${res.pembayaran.noKwitansi} diterbitkan.`
+      );
+      setActiveKwitansi({ pembayaran: res.pembayaran, details: res.details });
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Gagal memverifikasi pembayaran orang tua.');
+    } finally {
+      setProcessingOrtuId(null);
+    }
+  };
+
+  const handleSyncMidtransAll = async () => {
+    if (!profile) return;
+    const midtransPending = pendingOrtu.filter((p) => p.kanal === 'midtrans');
+    if (midtransPending.length === 0) return;
+
+    setSyncingMidtrans(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    const liveTagihan = tagihanList.map((t) => ({ ...t }));
+    let verifiedCount = 0;
+    let updatedCount = 0;
+    const failedNotes: string[] = [];
+
+    try {
+      for (const pengajuan of midtransPending) {
+        const orderId = pengajuan.midtransOrderId || pengajuan.kodePengajuan;
+        try {
+          const st = await checkMidtransOrderStatus(orderId);
+          if (isMidtransSettled(st.transactionStatus, st.fraudStatus)) {
+            await verifikasiPembayaranOrtu({
+              pengajuan,
+              tagihanList: liveTagihan,
+              actor: { uid: profile.uid, nama: profile.nama, peran: profile.peran },
+              midtransStatus: {
+                transactionStatus: st.transactionStatus,
+                paymentType: st.paymentType,
+              },
+            });
+            for (const item of pengajuan.items) {
+              const target = liveTagihan.find((t) => t.id === item.tagihanId);
+              if (target) {
+                target.totalTerbayar += item.bayarNominal;
+                target.sisaTagihan = Math.max(0, target.nominalTagihan - target.totalTerbayar);
+                target.status =
+                  target.sisaTagihan === 0
+                    ? 'lunas'
+                    : target.totalTerbayar > 0
+                    ? 'sebagian'
+                    : 'belum_bayar';
+              }
+            }
+            verifiedCount += 1;
+          } else {
+            await sinkronStatusMidtransOrtu({
+              pengajuanId: pengajuan.id,
+              transactionStatus: st.transactionStatus,
+              paymentType: st.paymentType,
+            });
+            updatedCount += 1;
+          }
+        } catch (err) {
+          failedNotes.push(
+            `${orderId}: ${err instanceof Error ? err.message : 'gagal memeriksa status'}`
+          );
+        }
+      }
+
+      if (verifiedCount > 0 || updatedCount > 0) {
+        const parts: string[] = [];
+        if (verifiedCount > 0) {
+          parts.push(`${verifiedCount} transaksi lunas otomatis diverifikasi & diterbitkan kwitansi`);
+        }
+        if (updatedCount > 0) {
+          parts.push(`${updatedCount} transaksi diperbarui status terkininya`);
+        }
+        setSuccessMsg(`Sinkronisasi Midtrans selesai: ${parts.join(', ')}.`);
+      }
+      if (failedNotes.length > 0) {
+        setErrorMsg(`Sebagian transaksi gagal disinkronkan: ${failedNotes.join(' | ')}`);
+      }
+    } finally {
+      setSyncingMidtrans(false);
+    }
+  };
+
+  const handleConfirmRejectOrtu = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile || !rejectTarget) return;
+    setRejecting(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      await tolakPembayaranOrtu({
+        pengajuan: rejectTarget,
+        alasanTolak,
+        actor: { uid: profile.uid, nama: profile.nama, peran: profile.peran },
+      });
+      setSuccessMsg(`Pengajuan ${rejectTarget.kodePengajuan} ditolak dengan alasan tercatat.`);
+      setRejectTarget(null);
+      setAlasanTolak('');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Gagal menolak pengajuan pembayaran.');
+    } finally {
+      setRejecting(false);
+    }
+  };
+
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
     if (!q) return pembayaranList.slice(0, 40);
@@ -192,6 +381,189 @@ export function PembayaranPage({ preselectedSiswaId, onClearPreselect }: Props) 
       {successMsg && (
         <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800">
           {successMsg}
+        </div>
+      )}
+
+      {/* Verifikasi Pembayaran Online Orang Tua */}
+      {canTransact && (pendingOrtu.length > 0 || processedOrtu.length > 0) && (
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <Clock className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">
+                  Verifikasi Pembayaran Orang Tua{' '}
+                  {pendingOrtu.length > 0 && (
+                    <span className="font-mono text-sm text-amber-700 tabular-nums">
+                      ({pendingOrtu.length} Menunggu)
+                    </span>
+                  )}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Periksa mutasi masuk sebelum memverifikasi dan menerbitkan kwitansi resmi.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+              {pendingOrtu.some((p) => p.kanal === 'midtrans') && (
+                <button
+                  type="button"
+                  disabled={syncingMidtrans}
+                  onClick={() => void handleSyncMidtransAll()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 disabled:opacity-50 rounded-md whitespace-nowrap"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncingMidtrans ? 'animate-spin' : ''}`} />
+                  {syncingMidtrans ? 'Menyinkronkan Midtrans...' : 'Sinkronkan Midtrans'}
+                </button>
+              )}
+              {processedOrtu.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowProcessedOrtu((v) => !v)}
+                  className="text-xs font-medium text-teal-700 hover:underline whitespace-nowrap"
+                >
+                  {showProcessedOrtu
+                    ? 'Sembunyikan Riwayat Online'
+                    : `Lihat Riwayat Online (${processedOrtu.length})`}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {pendingOrtu.length === 0 ? (
+            <div className="px-4 py-4 text-xs text-slate-500">
+              Tidak ada konfirmasi pembayaran dari orang tua yang menunggu verifikasi saat ini.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-600">
+                  <tr>
+                    <th className="py-2.5 px-4 text-left font-semibold">Kode / Tanggal</th>
+                    <th className="py-2.5 px-4 text-left font-semibold">Siswa</th>
+                    <th className="py-2.5 px-4 text-left font-semibold">Kanal &amp; Pengirim</th>
+                    <th className="py-2.5 px-4 text-left font-semibold">Rincian Bulan</th>
+                    <th className="py-2.5 px-4 text-right font-semibold">Total</th>
+                    <th className="py-2.5 px-4 text-right font-semibold">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {pendingOrtu.map((p) => {
+                    const busy = processingOrtuId === p.id;
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-50/70">
+                        <td className="py-2.5 px-4 whitespace-nowrap">
+                          <div className="font-mono text-xs font-medium text-slate-900 tabular-nums">
+                            {p.kodePengajuan}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {formatTanggalSingkat(p.tanggalTransfer)}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-4">
+                          <div className="font-medium text-slate-900">{p.siswaNama}</div>
+                          <div className="text-xs text-slate-500">
+                            {p.kelasNama} · <span className="font-mono">{p.siswaNis}</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-4 text-xs text-slate-600">
+                          {p.kanal === 'midtrans' ? (
+                            <>
+                              <div className="font-medium text-slate-800">
+                                {labelKanalOrtu(p.kanal)} ·{' '}
+                                {labelMidtransStatus(p.midtransTransactionStatus)}
+                              </div>
+                              <div>
+                                {p.midtransPaymentType ? `Metode: ${p.midtransPaymentType} · ` : ''}
+                                Order:{' '}
+                                <span className="font-mono">
+                                  {p.midtransOrderId || p.kodePengajuan}
+                                </span>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="font-medium text-slate-800">
+                                {labelKanalOrtu(p.kanal)}
+                              </div>
+                              <div>
+                                Pengirim: {p.namaPengirim}
+                                {p.referensiTransfer ? ` · Ref: ${p.referensiTransfer}` : ''}
+                              </div>
+                            </>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 text-xs text-slate-600 max-w-xs">
+                          <div>{p.rincianBulan}</div>
+                          {p.catatan && (
+                            <div className="text-slate-500 mt-0.5">Catatan: {p.catatan}</div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 text-right font-mono tabular-nums font-semibold text-slate-900 whitespace-nowrap">
+                          {formatRupiah(p.totalBayar)}
+                        </td>
+                        <td className="py-2.5 px-4 text-right whitespace-nowrap space-x-1.5">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void handleVerifikasiOrtu(p)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 rounded-md"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            {busy ? 'Memproses...' : 'Verifikasi & Kwitansi'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setRejectTarget(p);
+                              setAlasanTolak('');
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 rounded-md"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            Tolak
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {showProcessedOrtu && processedOrtu.length > 0 && (
+            <div className="border-t border-slate-200 bg-slate-50/60 overflow-x-auto">
+              <div className="px-4 py-2 text-xs font-semibold text-slate-600 border-b border-slate-200">
+                Riwayat Pengajuan Pembayaran Online Terakhir
+              </div>
+              <table className="w-full text-xs">
+                <tbody className="divide-y divide-slate-200/70">
+                  {processedOrtu.map((p) => (
+                    <tr key={p.id}>
+                      <td className="py-2 px-4 font-mono text-slate-800 whitespace-nowrap">
+                        {p.kodePengajuan}
+                      </td>
+                      <td className="py-2 px-4 text-slate-800 font-medium">{p.siswaNama}</td>
+                      <td className="py-2 px-4 text-slate-600">{p.rincianBulan}</td>
+                      <td className="py-2 px-4 font-mono tabular-nums font-semibold text-slate-900 text-right whitespace-nowrap">
+                        {formatRupiah(p.totalBayar)}
+                      </td>
+                      <td className="py-2 px-4">
+                        <StatusPembayaranOrtuBadge status={p.status} />
+                      </td>
+                      <td className="py-2 px-4 text-slate-500">
+                        {p.status === 'diverifikasi'
+                          ? `Kwitansi ${p.noKwitansi} (${p.diprosesOleh})`
+                          : `Ditolak: ${p.alasanTolak}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -579,6 +951,71 @@ export function PembayaranPage({ preselectedSiswaId, onClearPreselect }: Props) 
                 className="px-4 py-2 text-sm font-medium text-white bg-red-700 hover:bg-red-800 disabled:opacity-50 rounded-lg"
               >
                 {canceling ? 'Membatalkan...' : 'Konfirmasi Batalkan'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {rejectTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+          <form
+            onSubmit={(e) => void handleConfirmRejectOrtu(e)}
+            className="bg-white border border-slate-200 rounded-xl w-full max-w-md p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <h3 className="text-base font-semibold text-slate-900">
+                Tolak Konfirmasi Pembayaran Online
+              </h3>
+              <button
+                type="button"
+                onClick={() => setRejectTarget(null)}
+                className="p-1 text-slate-500 hover:text-slate-900"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="text-xs text-slate-600 space-y-1">
+              <div>
+                Kode Ajuan:{' '}
+                <span className="font-mono font-semibold text-slate-900">
+                  {rejectTarget.kodePengajuan}
+                </span>
+              </div>
+              <div>
+                Siswa:{' '}
+                <span className="font-semibold text-slate-900">{rejectTarget.siswaNama}</span> (
+                {formatRupiah(rejectTarget.totalBayar)})
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                Alasan Penolakan (Wajib, min. 5 karakter)
+              </label>
+              <textarea
+                rows={3}
+                required
+                minLength={5}
+                value={alasanTolak}
+                onChange={(e) => setAlasanTolak(e.target.value)}
+                placeholder="Contoh: Dana belum ditemukan pada mutasi rekening sekolah."
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setRejectTarget(null)}
+                className="px-4 py-2 text-sm text-slate-700 border border-slate-300 rounded-lg"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={rejecting || alasanTolak.trim().length < 5}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-700 hover:bg-red-800 disabled:opacity-50 rounded-lg"
+              >
+                {rejecting ? 'Menolak...' : 'Konfirmasi Tolak'}
               </button>
             </div>
           </form>

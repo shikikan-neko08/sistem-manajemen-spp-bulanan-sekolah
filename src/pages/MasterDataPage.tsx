@@ -81,6 +81,9 @@ export function MasterDataPage() {
   const [sekEmail, setSekEmail] = useState(sekolah?.email || '');
   const [sekKota, setSekKota] = useState(sekolah?.kota || 'Bandung');
   const [sekKepsek, setSekKepsek] = useState(sekolah?.namaKepalaSekolah || '');
+  const [sekBank, setSekBank] = useState(sekolah?.namaBank || '');
+  const [sekNoRek, setSekNoRek] = useState(sekolah?.noRekening || '');
+  const [sekAtasNama, setSekAtasNama] = useState(sekolah?.atasNamaRekening || '');
 
   React.useEffect(() => {
     if (sekolah) {
@@ -90,6 +93,9 @@ export function MasterDataPage() {
       setSekEmail(sekolah.email);
       setSekKota(sekolah.kota);
       setSekKepsek(sekolah.namaKepalaSekolah);
+      setSekBank(sekolah.namaBank || '');
+      setSekNoRek(sekolah.noRekening || '');
+      setSekAtasNama(sekolah.atasNamaRekening || '');
     }
   }, [sekolah]);
 
@@ -115,7 +121,14 @@ export function MasterDataPage() {
     return siswaList.filter((s) => {
       if (filterKelas !== 'all' && s.kelasId !== filterKelas) return false;
       if (filterStatus !== 'all' && s.statusAktif !== filterStatus) return false;
-      if (q && !s.nama.toLowerCase().includes(q) && !s.nis.toLowerCase().includes(q)) return false;
+      if (
+        q &&
+        !s.nama.toLowerCase().includes(q) &&
+        !s.nis.toLowerCase().includes(q) &&
+        !(s.emailOrtu || '').toLowerCase().includes(q)
+      ) {
+        return false;
+      }
       return true;
     });
   }, [siswaList, searchQuery, filterKelas, filterStatus]);
@@ -225,10 +238,13 @@ export function MasterDataPage() {
           email: sekEmail,
           kota: sekKota,
           namaKepalaSekolah: sekKepsek,
+          namaBank: sekBank,
+          noRekening: sekNoRek,
+          atasNamaRekening: sekAtasNama,
         },
         actor
       );
-      setNotice('Profil sekolah berhasil disimpan.');
+      setNotice('Profil & rekening sekolah berhasil disimpan.');
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Gagal menyimpan profil sekolah.');
     }
@@ -385,7 +401,7 @@ export function MasterDataPage() {
                   <th className="py-2.5 px-4 text-left font-semibold">NIS</th>
                   <th className="py-2.5 px-4 text-left font-semibold">Nama Siswa</th>
                   <th className="py-2.5 px-4 text-left font-semibold">Kelas</th>
-                  <th className="py-2.5 px-4 text-left font-semibold">No. HP Ortu</th>
+                  <th className="py-2.5 px-4 text-left font-semibold">Kontak Orang Tua</th>
                   <th className="py-2.5 px-4 text-left font-semibold">Beasiswa / Diskon</th>
                   <th className="py-2.5 px-4 text-left font-semibold">Status</th>
                   {canManageMaster && (
@@ -413,8 +429,13 @@ export function MasterDataPage() {
                       <td className="py-2.5 px-4 text-slate-700">
                         {kelasMap.get(s.kelasId) || '-'}
                       </td>
-                      <td className="py-2.5 px-4 font-mono text-xs text-slate-600">
-                        {s.noHpOrtu || '-'}
+                      <td className="py-2.5 px-4 text-xs text-slate-600">
+                        <div className="font-mono">{s.noHpOrtu || '-'}</div>
+                        {s.emailOrtu && (
+                          <div className="text-[11px] text-teal-800 truncate max-w-[190px]">
+                            {s.emailOrtu}
+                          </div>
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-xs text-slate-600">
                         {s.diskonTipe === 'none' ? (
@@ -758,6 +779,50 @@ export function MasterDataPage() {
               />
             </div>
           </div>
+
+          <div className="pt-4 border-t border-slate-200 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">
+                Rekening Penerimaan SPP Online (Portal Orang Tua)
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Ditampilkan kepada orang tua/wali saat melakukan pembayaran transfer bank di portal.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Nama Bank</label>
+                <input
+                  type="text"
+                  value={sekBank}
+                  onChange={(e) => setSekBank(e.target.value)}
+                  placeholder="Contoh: Bank BRI / BCA"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">No. Rekening</label>
+                <input
+                  type="text"
+                  value={sekNoRek}
+                  onChange={(e) => setSekNoRek(e.target.value)}
+                  placeholder="Contoh: 0012-01-004829-50-3"
+                  className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Atas Nama</label>
+                <input
+                  type="text"
+                  value={sekAtasNama}
+                  onChange={(e) => setSekAtasNama(e.target.value)}
+                  placeholder="Bendahara Komite SMA"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                />
+              </div>
+            </div>
+          </div>
+
           <button
             type="submit"
             className="px-5 py-2.5 text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-lg"
@@ -777,7 +842,7 @@ export function MasterDataPage() {
             <div className="flex items-center gap-2">
               <UserPlus className="w-4 h-4 text-teal-700" />
               <h2 className="text-base font-semibold text-slate-900">
-                Tetapkan Peran Staf Sebelum Login
+                Tetapkan Peran Staf / Orang Tua Sebelum Login
               </h2>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -785,7 +850,7 @@ export function MasterDataPage() {
                 type="email"
                 value={invEmail}
                 onChange={(e) => setInvEmail(e.target.value)}
-                placeholder="Email Google staf"
+                placeholder="Email pengguna / orang tua"
                 required
                 className="px-3 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -804,6 +869,7 @@ export function MasterDataPage() {
               >
                 <option value="petugas">Petugas / Bendahara</option>
                 <option value="kepala_sekolah">Kepala Sekolah</option>
+                <option value="orang_tua">Orang Tua / Wali</option>
                 <option value="admin">Admin</option>
               </select>
               <button
@@ -871,6 +937,7 @@ export function MasterDataPage() {
                           <option value="admin">Admin</option>
                           <option value="petugas">Petugas / Bendahara</option>
                           <option value="kepala_sekolah">Kepala Sekolah</option>
+                          <option value="orang_tua">Orang Tua / Wali</option>
                           <option value="pending">Pending</option>
                         </select>
                       </td>

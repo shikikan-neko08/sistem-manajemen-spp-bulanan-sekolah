@@ -27,8 +27,14 @@ export function DashboardPage({ onNavigate }: { onNavigate: (r: PageRoute) => vo
     siswaList,
     tagihanList,
     pembayaranList,
+    pembayaranOrtuList,
     loadingData,
   } = useSppData();
+
+  const pendingOrtuCount = useMemo(
+    () => pembayaranOrtuList.filter((p) => p.status === 'menunggu_verifikasi').length,
+    [pembayaranOrtuList]
+  );
 
   const [seeding, setSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState<string | null>(null);
@@ -182,6 +188,23 @@ export function DashboardPage({ onNavigate }: { onNavigate: (r: PageRoute) => vo
       {seedError && (
         <div className="p-3.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
           {seedError}
+        </div>
+      )}
+
+      {canTransact && pendingOrtuCount > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="text-sm text-amber-950">
+            <span className="font-semibold tabular-nums">{pendingOrtuCount}</span> konfirmasi
+            pembayaran SPP dari Orang Tua / Wali menunggu verifikasi bendahara.
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('pembayaran')}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+          >
+            Tinjau &amp; Verifikasi
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 

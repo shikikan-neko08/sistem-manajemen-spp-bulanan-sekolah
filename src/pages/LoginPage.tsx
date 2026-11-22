@@ -20,6 +20,7 @@ export function LoginPage() {
     resetPasswordEmail,
     resendVerificationEmail,
     reloadVerificationStatus,
+    refreshProfile,
     logout,
     loading,
   } = useAuth();
@@ -123,17 +124,38 @@ export function LoginPage() {
           </div>
           <p className="text-sm text-slate-600 leading-relaxed">
             Akun Anda sudah terdaftar, namun Admin sekolah belum menetapkan peran akses Anda
-            (Admin, Petugas/Bendahara, atau Kepala Sekolah). Silakan hubungi Admin Tata Usaha untuk
-            mengaktifkan akun Anda.
+            (Admin, Petugas/Bendahara, Kepala Sekolah, atau Orang Tua/Wali). Jika Anda Orang
+            Tua/Wali siswa, pastikan Admin Tata Usaha telah mengisi alamat email ini pada data
+            siswa terkait.
           </p>
-          <button
-            type="button"
-            onClick={() => void logout()}
-            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            Keluar dan Ganti Akun
-          </button>
+          {authError && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+              {authError}
+            </div>
+          )}
+          <div className="space-y-2.5">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                await refreshProfile();
+                setBusy(false);
+              }}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              {busy ? 'Memeriksa...' : 'Periksa Status Aktivasi'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              Keluar dan Ganti Akun
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -217,7 +239,7 @@ export function LoginPage() {
                 value={nama}
                 onChange={(e) => setNama(e.target.value)}
                 required
-                placeholder="Nama petugas / kepala sekolah"
+                placeholder="Nama lengkap staf / orang tua"
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
               />
             </div>
@@ -325,18 +347,22 @@ export function LoginPage() {
           </div>
         )}
 
-        <div className="border-t border-slate-200 pt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs text-slate-600">
+        <div className="border-t border-slate-200 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs text-slate-600">
           <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80">
             <div className="font-semibold text-slate-900">Admin</div>
-            <p className="mt-0.5">Akses penuh seluruh data & pengguna.</p>
+            <p className="mt-0.5">Akses penuh seluruh data &amp; pengguna.</p>
           </div>
           <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80">
-            <div className="font-semibold text-slate-900">Petugas</div>
-            <p className="mt-0.5">Kelola tagihan, bayar & kwitansi.</p>
+            <div className="font-semibold text-slate-900">Petugas / Bendahara</div>
+            <p className="mt-0.5">Kelola tagihan, verifikasi bayar &amp; kwitansi.</p>
           </div>
           <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80">
             <div className="font-semibold text-slate-900">Kepala Sekolah</div>
-            <p className="mt-0.5">Lihat dashboard & laporan.</p>
+            <p className="mt-0.5">Lihat dashboard &amp; laporan keuangan.</p>
+          </div>
+          <div className="p-2.5 bg-teal-50/60 rounded-lg border border-teal-200/80">
+            <div className="font-semibold text-teal-900">Orang Tua / Wali</div>
+            <p className="mt-0.5">Lihat tagihan anak, bayar online &amp; unduh kwitansi.</p>
           </div>
         </div>
       </div>

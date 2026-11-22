@@ -27,6 +27,10 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    function authEmail() {
+      return request.auth.token.email is string ? request.auth.token.email.lower() : '';
+    }
+
     function isBootstrappedAdmin() {
       return isVerified() && request.auth.token.email == 'ardaffa2000@gmail.com';
     }
@@ -66,12 +70,24 @@ service cloud.firestore {
       return isVerified() && userDocExists() && isUserActive() && userRole() == 'kepala_sekolah';
     }
 
+    function isParent() {
+      return isVerified()
+        && authEmail().size() >= 3
+        && userDocExists()
+        && isUserActive()
+        && userRole() == 'orang_tua';
+    }
+
     function isStaff() {
       return isAdmin() || isPetugas() || isKepsek();
     }
 
     function isOperator() {
       return isAdmin() || isPetugas();
+    }
+
+    function isOwnedByParentEmail(data) {
+      return isParent() && data.emailOrtu == authEmail();
     }
 
     // 3. Entity Validation Blueprints
@@ -81,7 +97,7 @@ service cloud.firestore {
         && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
         && data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 120
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
-        && data.peran in ['admin', 'petugas', 'kepala_sekolah', 'pending']
+        && data.peran in ['admin', 'petugas', 'kepala_sekolah', 'orang_tua', 'pending']
         && data.aktif is bool
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -92,20 +108,23 @@ service cloud.firestore {
         && data.keys().hasOnly(['email', 'nama', 'peran', 'createdBy', 'createdAt'])
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
         && data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 120
-        && data.peran in ['admin', 'petugas', 'kepala_sekolah']
+        && data.peran in ['admin', 'petugas', 'kepala_sekolah', 'orang_tua']
         && data.createdBy == request.auth.uid
         && data.createdAt is timestamp;
     }
 
     function isValidPengaturanSekolah(data) {
       return data.keys().hasAll(['namaSekolah', 'alamat', 'telepon', 'email', 'kota', 'namaKepalaSekolah', 'updatedAt'])
-        && data.keys().hasOnly(['namaSekolah', 'alamat', 'telepon', 'email', 'kota', 'namaKepalaSekolah', 'updatedAt'])
+        && data.keys().hasOnly(['namaSekolah', 'alamat', 'telepon', 'email', 'kota', 'namaKepalaSekolah', 'namaBank', 'noRekening', 'atasNamaRekening', 'updatedAt'])
         && data.namaSekolah is string && data.namaSekolah.size() >= 2 && data.namaSekolah.size() <= 160
         && data.alamat is string && data.alamat.size() <= 300
         && data.telepon is string && data.telepon.size() <= 40
         && data.email is string && data.email.size() <= 120
         && data.kota is string && data.kota.size() >= 1 && data.kota.size() <= 80
         && data.namaKepalaSekolah is string && data.namaKepalaSekolah.size() <= 120
+        && (!('namaBank' in data) || (data.namaBank is string && data.namaBank.size() <= 80))
+        && (!('noRekening' in data) || (data.noRekening is string && data.noRekening.size() <= 60))
+        && (!('atasNamaRekening' in data) || (data.atasNamaRekening is string && data.atasNamaRekening.size() <= 120))
         && data.updatedAt is timestamp;
     }
 
@@ -137,12 +156,13 @@ service cloud.firestore {
 
     function isValidSiswa(data) {
       return data.keys().hasAll(['nis', 'nama', 'kelasId', 'statusAktif', 'noHpOrtu', 'diskonTipe', 'diskonNilai', 'keteranganDiskon', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['nis', 'nama', 'kelasId', 'statusAktif', 'noHpOrtu', 'diskonTipe', 'diskonNilai', 'keteranganDiskon', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['nis', 'nama', 'kelasId', 'statusAktif', 'noHpOrtu', 'emailOrtu', 'diskonTipe', 'diskonNilai', 'keteranganDiskon', 'createdAt', 'updatedAt'])
         && data.nis is string && data.nis.size() >= 3 && data.nis.size() <= 30
         && data.nama is string && data.nama.size() >= 2 && data.nama.size() <= 120
         && isValidId(data.kelasId)
         && data.statusAktif in ['aktif', 'lulus', 'pindah', 'nonaktif']
         && data.noHpOrtu is string && data.noHpOrtu.size() <= 30
+        && (!('emailOrtu' in data) || (data.emailOrtu is string && data.emailOrtu.size() <= 160))
         && data.diskonTipe in ['none', 'nominal', 'persen']
         && data.diskonNilai is number && data.diskonNilai >= 0
         && (data.diskonTipe != 'persen' || data.diskonNilai <= 100)
@@ -153,10 +173,11 @@ service cloud.firestore {
 
     function isValidTagihanSpp(data) {
       return data.keys().hasAll(['siswaId', 'kelasId', 'tahunAjaranId', 'bulan', 'tahun', 'nominalTarif', 'nominalDiskon', 'nominalTagihan', 'totalTerbayar', 'sisaTagihan', 'status', 'jatuhTempo', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['siswaId', 'kelasId', 'tahunAjaranId', 'bulan', 'tahun', 'nominalTarif', 'nominalDiskon', 'nominalTagihan', 'totalTerbayar', 'sisaTagihan', 'status', 'jatuhTempo', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['siswaId', 'kelasId', 'tahunAjaranId', 'emailOrtu', 'bulan', 'tahun', 'nominalTarif', 'nominalDiskon', 'nominalTagihan', 'totalTerbayar', 'sisaTagihan', 'status', 'jatuhTempo', 'createdAt', 'updatedAt'])
         && isValidId(data.siswaId)
         && isValidId(data.kelasId)
         && isValidId(data.tahunAjaranId)
+        && (!('emailOrtu' in data) || (data.emailOrtu is string && data.emailOrtu.size() <= 160))
         && data.bulan is number && data.bulan >= 1 && data.bulan <= 12
         && data.tahun is number && data.tahun >= 2020 && data.tahun <= 2100
         && data.nominalTarif is number && data.nominalTarif >= 0
@@ -172,13 +193,14 @@ service cloud.firestore {
 
     function isValidPembayaran(data) {
       return data.keys().hasAll(['noKwitansi', 'siswaId', 'siswaNis', 'siswaNama', 'kelasId', 'kelasNama', 'tanggalBayar', 'metode', 'totalBayar', 'petugasUid', 'petugasNama', 'catatan', 'status', 'alasanBatal', 'dibatalkanOleh', 'dibatalkanPada', 'rincianBulan', 'createdAt'])
-        && data.keys().hasOnly(['noKwitansi', 'siswaId', 'siswaNis', 'siswaNama', 'kelasId', 'kelasNama', 'tanggalBayar', 'metode', 'totalBayar', 'petugasUid', 'petugasNama', 'catatan', 'status', 'alasanBatal', 'dibatalkanOleh', 'dibatalkanPada', 'rincianBulan', 'createdAt'])
+        && data.keys().hasOnly(['noKwitansi', 'siswaId', 'siswaNis', 'siswaNama', 'kelasId', 'kelasNama', 'emailOrtu', 'tanggalBayar', 'metode', 'totalBayar', 'petugasUid', 'petugasNama', 'catatan', 'status', 'alasanBatal', 'dibatalkanOleh', 'dibatalkanPada', 'rincianBulan', 'createdAt'])
         && data.noKwitansi is string && data.noKwitansi.size() >= 5 && data.noKwitansi.size() <= 60
         && isValidId(data.siswaId)
         && data.siswaNis is string && data.siswaNis.size() <= 30
         && data.siswaNama is string && data.siswaNama.size() <= 120
         && isValidId(data.kelasId)
         && data.kelasNama is string && data.kelasNama.size() <= 60
+        && (!('emailOrtu' in data) || (data.emailOrtu is string && data.emailOrtu.size() <= 160))
         && data.tanggalBayar is string && data.tanggalBayar.size() >= 8 && data.tanggalBayar.size() <= 30
         && data.metode in ['tunai', 'transfer']
         && data.totalBayar is number && data.totalBayar > 0 && data.totalBayar <= 100000000
@@ -195,15 +217,71 @@ service cloud.firestore {
 
     function isValidPembayaranDetail(data) {
       return data.keys().hasAll(['pembayaranId', 'tagihanId', 'siswaId', 'bulan', 'tahun', 'nominalDialokasikan', 'status', 'createdAt'])
-        && data.keys().hasOnly(['pembayaranId', 'tagihanId', 'siswaId', 'bulan', 'tahun', 'nominalDialokasikan', 'status', 'createdAt'])
+        && data.keys().hasOnly(['pembayaranId', 'tagihanId', 'siswaId', 'emailOrtu', 'bulan', 'tahun', 'nominalDialokasikan', 'status', 'createdAt'])
         && isValidId(data.pembayaranId)
         && isValidId(data.tagihanId)
         && isValidId(data.siswaId)
+        && (!('emailOrtu' in data) || (data.emailOrtu is string && data.emailOrtu.size() <= 160))
         && data.bulan is number && data.bulan >= 1 && data.bulan <= 12
         && data.tahun is number && data.tahun >= 2020 && data.tahun <= 2100
         && data.nominalDialokasikan is number && data.nominalDialokasikan > 0
         && data.status in ['sah', 'dibatalkan']
         && data.createdAt is timestamp;
+    }
+
+    function isValidPembayaranOrtu(data) {
+      return data.keys().hasAll([
+          'kodePengajuan', 'siswaId', 'siswaNis', 'siswaNama', 'kelasId', 'kelasNama',
+          'orangTuaUid', 'orangTuaNama', 'emailOrtu', 'tanggalTransfer', 'kanal',
+          'namaPengirim', 'referensiTransfer', 'catatan', 'totalBayar', 'rincianBulan',
+          'items', 'status', 'pembayaranId', 'noKwitansi', 'diprosesOleh', 'diprosesPada',
+          'alasanTolak', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'kodePengajuan', 'siswaId', 'siswaNis', 'siswaNama', 'kelasId', 'kelasNama',
+          'orangTuaUid', 'orangTuaNama', 'emailOrtu', 'tanggalTransfer', 'kanal',
+          'namaPengirim', 'referensiTransfer', 'catatan', 'totalBayar', 'rincianBulan',
+          'items', 'status', 'pembayaranId', 'noKwitansi', 'diprosesOleh', 'diprosesPada',
+          'alasanTolak', 'midtransOrderId', 'midtransSnapToken', 'midtransRedirectUrl',
+          'midtransTransactionStatus', 'midtransPaymentType', 'createdAt', 'updatedAt'
+        ])
+        && data.kodePengajuan is string && data.kodePengajuan.size() >= 5 && data.kodePengajuan.size() <= 60
+        && isValidId(data.siswaId)
+        && data.siswaNis is string && data.siswaNis.size() <= 30
+        && data.siswaNama is string && data.siswaNama.size() <= 120
+        && isValidId(data.kelasId)
+        && data.kelasNama is string && data.kelasNama.size() <= 60
+        && data.orangTuaUid is string && data.orangTuaUid.size() >= 1 && data.orangTuaUid.size() <= 128
+        && data.orangTuaNama is string && data.orangTuaNama.size() >= 1 && data.orangTuaNama.size() <= 120
+        && data.emailOrtu is string && data.emailOrtu.size() >= 3 && data.emailOrtu.size() <= 160
+        && data.tanggalTransfer is string && data.tanggalTransfer.size() >= 8 && data.tanggalTransfer.size() <= 30
+        && data.kanal in ['midtrans', 'transfer_bank', 'qris', 'virtual_account']
+        && data.namaPengirim is string && data.namaPengirim.size() >= 2 && data.namaPengirim.size() <= 120
+        && data.referensiTransfer is string && data.referensiTransfer.size() <= 100
+        && data.catatan is string && data.catatan.size() <= 300
+        && data.totalBayar is number && data.totalBayar > 0 && data.totalBayar <= 100000000
+        && data.rincianBulan is string && data.rincianBulan.size() >= 1 && data.rincianBulan.size() <= 500
+        && data.items is list && data.items.size() >= 1 && data.items.size() <= 12
+        && data.items[0] is map
+        && data.items[0].keys().hasAll(['tagihanId', 'bulan', 'tahun', 'bayarNominal'])
+        && data.items[0].keys().hasOnly(['tagihanId', 'bulan', 'tahun', 'bayarNominal'])
+        && isValidId(data.items[0].tagihanId)
+        && data.items[0].bulan is number && data.items[0].bulan >= 1 && data.items[0].bulan <= 12
+        && data.items[0].tahun is number && data.items[0].tahun >= 2020 && data.items[0].tahun <= 2100
+        && data.items[0].bayarNominal is number && data.items[0].bayarNominal > 0
+        && data.status in ['menunggu_verifikasi', 'diverifikasi', 'ditolak']
+        && data.pembayaranId is string && data.pembayaranId.size() <= 128
+        && data.noKwitansi is string && data.noKwitansi.size() <= 60
+        && data.diprosesOleh is string && data.diprosesOleh.size() <= 120
+        && data.diprosesPada is string && data.diprosesPada.size() <= 40
+        && data.alasanTolak is string && data.alasanTolak.size() <= 300
+        && (!('midtransOrderId' in data) || (data.midtransOrderId is string && data.midtransOrderId.size() <= 80))
+        && (!('midtransSnapToken' in data) || (data.midtransSnapToken is string && data.midtransSnapToken.size() <= 160))
+        && (!('midtransRedirectUrl' in data) || (data.midtransRedirectUrl is string && data.midtransRedirectUrl.size() <= 300))
+        && (!('midtransTransactionStatus' in data) || (data.midtransTransactionStatus is string && data.midtransTransactionStatus.size() <= 40))
+        && (!('midtransPaymentType' in data) || (data.midtransPaymentType is string && data.midtransPaymentType.size() <= 60))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
     }
 
     function isValidLogAktivitas(data) {
@@ -243,7 +321,14 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && (
           isAdmin() ||
-          (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['nama', 'updatedAt']))
+          (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['nama', 'updatedAt'])) ||
+          (
+            request.auth.uid == userId
+            && existing().peran == 'pending'
+            && hasValidRoleInvite(incoming().peran)
+            && incoming().aktif == true
+            && incoming().diff(existing()).affectedKeys().hasOnly(['peran', 'aktif', 'updatedAt'])
+          )
         );
       allow delete: if false;
     }
@@ -257,24 +342,24 @@ service cloud.firestore {
     }
 
     match /pengaturan_sekolah/{settingId} {
-      allow get: if isValidId(settingId) && isStaff();
-      allow list: if isStaff();
+      allow get: if isValidId(settingId) && (isStaff() || isParent());
+      allow list: if isStaff() || isParent();
       allow create: if isValidId(settingId) && isAdmin() && isValidPengaturanSekolah(incoming()) && incoming().updatedAt == request.time;
       allow update: if isValidId(settingId) && isAdmin() && isValidPengaturanSekolah(incoming()) && incoming().updatedAt == request.time;
       allow delete: if false;
     }
 
     match /tahun_ajaran/{tahunAjaranId} {
-      allow get: if isValidId(tahunAjaranId) && isStaff();
-      allow list: if isStaff();
+      allow get: if isValidId(tahunAjaranId) && (isStaff() || isParent());
+      allow list: if isStaff() || isParent();
       allow create: if isValidId(tahunAjaranId) && isAdmin() && isValidTahunAjaran(incoming()) && incoming().createdAt == request.time;
       allow update: if isValidId(tahunAjaranId) && isAdmin() && isValidTahunAjaran(incoming()) && incoming().createdAt == existing().createdAt;
       allow delete: if isValidId(tahunAjaranId) && isAdmin();
     }
 
     match /kelas/{kelasId} {
-      allow get: if isValidId(kelasId) && isStaff();
-      allow list: if isStaff();
+      allow get: if isValidId(kelasId) && (isStaff() || isParent());
+      allow list: if isStaff() || isParent();
       allow create: if isValidId(kelasId) && isAdmin() && isValidKelas(incoming()) && incoming().createdAt == request.time;
       allow update: if isValidId(kelasId) && isAdmin() && isValidKelas(incoming()) && incoming().createdAt == existing().createdAt;
       allow delete: if isValidId(kelasId) && isAdmin();
@@ -289,16 +374,16 @@ service cloud.firestore {
     }
 
     match /siswa/{siswaId} {
-      allow get: if isValidId(siswaId) && isStaff();
-      allow list: if isStaff();
+      allow get: if isValidId(siswaId) && (isStaff() || isOwnedByParentEmail(existing()));
+      allow list: if isStaff() || isOwnedByParentEmail(existing());
       allow create: if isValidId(siswaId) && isAdmin() && isValidSiswa(incoming()) && incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isValidId(siswaId) && isAdmin() && isValidSiswa(incoming()) && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
       allow delete: if isValidId(siswaId) && isAdmin();
     }
 
     match /tagihan_spp/{tagihanId} {
-      allow get: if isValidId(tagihanId) && isStaff();
-      allow list: if isStaff();
+      allow get: if isValidId(tagihanId) && (isStaff() || isOwnedByParentEmail(existing()));
+      allow list: if isStaff() || isOwnedByParentEmail(existing());
       allow create: if isValidId(tagihanId) && isOperator() && isValidTagihanSpp(incoming()) && incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isValidId(tagihanId)
         && isOperator()
@@ -313,8 +398,8 @@ service cloud.firestore {
     }
 
     match /pembayaran/{pembayaranId} {
-      allow get: if isValidId(pembayaranId) && isStaff();
-      allow list: if isStaff();
+      allow get: if isValidId(pembayaranId) && (isStaff() || isOwnedByParentEmail(existing()));
+      allow list: if isStaff() || isOwnedByParentEmail(existing());
       allow create: if isValidId(pembayaranId)
         && isOperator()
         && isValidPembayaran(incoming())
@@ -328,16 +413,25 @@ service cloud.firestore {
         && incoming().noKwitansi == existing().noKwitansi
         && incoming().siswaId == existing().siswaId
         && incoming().totalBayar == existing().totalBayar
-        && existing().status == 'sah'
-        && incoming().status == 'dibatalkan'
-        && incoming().alasanBatal.size() >= 5
-        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'alasanBatal', 'dibatalkanOleh', 'dibatalkanPada']);
+        && (
+          (
+            existing().status == 'sah'
+            && incoming().status == 'dibatalkan'
+            && incoming().alasanBatal.size() >= 5
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'alasanBatal', 'dibatalkanOleh', 'dibatalkanPada'])
+          ) ||
+          (
+            isAdmin()
+            && incoming().status == existing().status
+            && incoming().diff(existing()).affectedKeys().hasOnly(['emailOrtu'])
+          )
+        );
       allow delete: if false;
     }
 
     match /pembayaran_detail/{detailId} {
-      allow get: if isValidId(detailId) && isStaff();
-      allow list: if isStaff();
+      allow get: if isValidId(detailId) && (isStaff() || isOwnedByParentEmail(existing()));
+      allow list: if isStaff() || isOwnedByParentEmail(existing());
       allow create: if isValidId(detailId)
         && isOperator()
         && isValidPembayaranDetail(incoming())
@@ -347,9 +441,79 @@ service cloud.firestore {
         && isOperator()
         && isValidPembayaranDetail(incoming())
         && incoming().createdAt == existing().createdAt
-        && existing().status == 'sah'
-        && incoming().status == 'dibatalkan'
-        && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+        && (
+          (
+            existing().status == 'sah'
+            && incoming().status == 'dibatalkan'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+          ) ||
+          (
+            isAdmin()
+            && incoming().pembayaranId == existing().pembayaranId
+            && incoming().tagihanId == existing().tagihanId
+            && incoming().siswaId == existing().siswaId
+            && incoming().status == existing().status
+            && incoming().diff(existing()).affectedKeys().hasOnly(['emailOrtu'])
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /pembayaran_ortu/{pengajuanId} {
+      allow get: if isValidId(pengajuanId) && (isStaff() || isOwnedByParentEmail(existing()));
+      allow list: if isStaff() || isOwnedByParentEmail(existing());
+      allow create: if isValidId(pengajuanId)
+        && isVerified()
+        && isValidPembayaranOrtu(incoming())
+        && incoming().orangTuaUid == request.auth.uid
+        && incoming().status == 'menunggu_verifikasi'
+        && incoming().pembayaranId == ''
+        && incoming().noKwitansi == ''
+        && incoming().diprosesOleh == ''
+        && incoming().diprosesPada == ''
+        && incoming().alasanTolak == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/siswa/$(incoming().siswaId))
+        && (
+          isAdmin() ||
+          (
+            isParent()
+            && incoming().emailOrtu == authEmail()
+            && get(/databases/$(database)/documents/siswa/$(incoming().siswaId)).data.emailOrtu == authEmail()
+          )
+        );
+      allow update: if isValidId(pengajuanId)
+        && isVerified()
+        && isValidPembayaranOrtu(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().kodePengajuan == existing().kodePengajuan
+        && incoming().orangTuaUid == existing().orangTuaUid
+        && incoming().emailOrtu == existing().emailOrtu
+        && incoming().siswaId == existing().siswaId
+        && incoming().totalBayar == existing().totalBayar
+        && existing().status == 'menunggu_verifikasi'
+        && (
+          (
+            isOperator()
+            && incoming().status in ['diverifikasi', 'ditolak']
+            && (incoming().status != 'ditolak' || incoming().alasanTolak.size() >= 5)
+            && (incoming().status != 'diverifikasi' || (incoming().pembayaranId.size() >= 5 && incoming().noKwitansi.size() >= 5))
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'pembayaranId', 'noKwitansi', 'diprosesOleh', 'diprosesPada', 'alasanTolak',
+              'midtransTransactionStatus', 'midtransPaymentType', 'updatedAt'
+            ])
+          ) ||
+          (
+            (isAdmin() || isOwnedByParentEmail(existing()))
+            && existing().kanal == 'midtrans'
+            && incoming().status == 'menunggu_verifikasi'
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'midtransTransactionStatus', 'midtransPaymentType', 'updatedAt'
+            ])
+          )
+        );
       allow delete: if false;
     }
 
@@ -357,9 +521,12 @@ service cloud.firestore {
       allow get: if isValidId(logId) && (isAdmin() || isKepsek());
       allow list: if isAdmin() || isKepsek();
       allow create: if isValidId(logId)
-        && isStaff()
         && isValidLogAktivitas(incoming())
-        && incoming().createdAt == request.time;
+        && incoming().createdAt == request.time
+        && (
+          isStaff() ||
+          (isParent() && incoming().aksi == 'CREATE' && incoming().entitas == 'pembayaran_ortu')
+        );
       allow update: if false;
       allow delete: if false;
     }

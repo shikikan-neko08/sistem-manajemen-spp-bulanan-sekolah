@@ -12,7 +12,7 @@ import {
   updateProfile,
   type User as FirebaseUser,
 } from 'firebase/auth';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import {
   auth,
   BOOTSTRAPPED_ADMIN_EMAIL,
@@ -48,6 +48,7 @@ interface AuthContextValue {
   canManageMaster: boolean;
   canTransact: boolean;
   canViewAudit: boolean;
+  isParent: boolean;
 }
 
 const REDIRECT_PENDING_KEY = 'spp_google_redirect_pending';
@@ -97,11 +98,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const userRef = doc(db, 'users', fbUser.uid);
       const snap = await getDoc(userRef);
-      if (snap.exists()) {
-        return { id: snap.id, ...(snap.data() as Omit<AppUser, 'id'>) };
-      }
-
       const email = (fbUser.email || '').toLowerCase();
+      if (snap.exists()) {
+        const existingData = snap.data() as Omit<AppUser, 'id'>;
+        if (existingData.peran === 'pending' && email && fbUser.emailVerified) {
+          const inviteSnap = await getDoc(doc(db, 'role_invites', emailToKey(email)));
+          if (inviteSnap.exists()) {
+            const inviteData = inviteSnap.data() as { peran?: ActiveRole };
+            if (inviteData.peran) {
+              await updateDoc(userRef, {
+                peran: inviteData.peran,
+                aktif: true,
+                updatedAt: serverTimestamp(),
+              });
+              const upgraded = await getDoc(userRef);
+              return { id: upgraded.id, ...(upgraded.data() as Omit<AppUser, 'id'>) };
+            }
+          }
+        }
+        return { id: snap.id, ...existingData };
+      }
       let assignedRole: UserRole = 'pending';
       let assignedName = fbUser.displayName || email.split('@')[0] || 'Pengguna';
 
@@ -222,10 +238,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = async () => {
     if (!firebaseUser || !firebaseUser.emailVerified) return;
-    const snap = await getDoc(doc(db, 'users', firebaseUser.uid));
-    if (snap.exists()) {
-      setProfile({ id: snap.id, ...(snap.data() as Omit<AppUser, 'id'>) });
-    }
+    const prof = await syncOrCreateUserProfile(firebaseUser);
+    setProfile(prof);
   };
 
   const loginGoogle = async () => {
@@ -363,6 +377,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const canManageMaster = effectiveRole === 'admin';
   const canTransact = effectiveRole === 'admin' || effectiveRole === 'petugas';
   const canViewAudit = effectiveRole === 'admin' || effectiveRole === 'kepala_sekolah';
+  const isParent = effectiveRole === 'orang_tua';
 
   return (
     <AuthContext.Provider
@@ -394,6 +409,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         canManageMaster,
         canTransact,
         canViewAudit,
+        isParent,
       }}
     >
       {children}

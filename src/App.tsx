@@ -9,6 +9,7 @@ import { LogAktivitasPage } from './pages/LogAktivitasPage.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
 import { MasterDataPage } from './pages/MasterDataPage.tsx';
 import { PembayaranPage } from './pages/PembayaranPage.tsx';
+import { PortalOrangTuaPage } from './pages/PortalOrangTuaPage.tsx';
 import { TagihanPage } from './pages/TagihanPage.tsx';
 import { TunggakanPage } from './pages/TunggakanPage.tsx';
 import type { PageRoute } from './types/spp.ts';
@@ -35,8 +36,19 @@ function AppShell() {
     setActiveRoute('pembayaran');
   };
 
+  const resolvedRoute: PageRoute =
+    effectiveRole === 'orang_tua'
+      ? 'portal_ortu'
+      : activeRoute === 'portal_ortu'
+      ? 'dashboard'
+      : activeRoute;
+
   const renderPage = () => {
-    switch (activeRoute) {
+    if (effectiveRole === 'orang_tua') {
+      return <PortalOrangTuaPage />;
+    }
+
+    switch (resolvedRoute) {
       case 'master':
         return effectiveRole === 'kepala_sekolah' ? (
           <DashboardPage onNavigate={setActiveRoute} />
@@ -67,7 +79,7 @@ function AppShell() {
   };
 
   return (
-    <Layout activeRoute={activeRoute} onNavigate={setActiveRoute}>
+    <Layout activeRoute={resolvedRoute} onNavigate={setActiveRoute}>
       {renderPage()}
     </Layout>
   );

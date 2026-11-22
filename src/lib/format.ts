@@ -116,9 +116,49 @@ export function labelPeran(peran: string): string {
       return 'Petugas / Bendahara';
     case 'kepala_sekolah':
       return 'Kepala Sekolah';
+    case 'orang_tua':
+      return 'Orang Tua / Wali';
     case 'pending':
       return 'Menunggu Persetujuan';
     default:
       return peran;
   }
+}
+
+export function labelKanalOrtu(kanal: string): string {
+  switch (kanal) {
+    case 'midtrans':
+      return 'Midtrans Snap';
+    case 'transfer_bank':
+      return 'Transfer Bank';
+    case 'qris':
+      return 'QRIS Sekolah';
+    case 'virtual_account':
+      return 'Virtual Account';
+    default:
+      return kanal;
+  }
+}
+
+export function labelMidtransStatus(status?: string): string {
+  switch ((status || '').toLowerCase()) {
+    case 'settlement':
+    case 'capture':
+      return 'Lunas di Midtrans';
+    case 'pending':
+      return 'Menunggu Pembayaran';
+    case 'expire':
+      return 'Kedaluwarsa';
+    case 'cancel':
+      return 'Dibatalkan';
+    case 'deny':
+      return 'Ditolak Gateway';
+    default:
+      return status || 'Menunggu Pembayaran';
+  }
+}
+
+export function virtualAccountSiswa(nis: string): string {
+  const digits = nis.replace(/[^0-9]/g, '');
+  return `88102${digits.padStart(10, '0').slice(-10)}`;
 }

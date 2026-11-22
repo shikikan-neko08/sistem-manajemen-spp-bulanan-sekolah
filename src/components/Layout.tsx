@@ -41,25 +41,45 @@ export function Layout({ activeRoute, onNavigate, children }: Props) {
     canTransact,
     canViewAudit,
   } = useAuth();
-  const { sekolah, tahunAjaranAktif, autoGenerateNotice, dismissAutoGenerateNotice } = useSppData();
+  const {
+    sekolah,
+    tahunAjaranAktif,
+    pembayaranOrtuList,
+    autoGenerateNotice,
+    dismissAutoGenerateNotice,
+  } = useSppData();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navItems: NavItem[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: true },
-    {
-      id: 'master',
-      label: 'Data Master',
-      icon: BookOpen,
-      visible: canManageMaster || effectiveRole === 'petugas',
-    },
-    { id: 'tagihan', label: 'Tagihan Bulanan', icon: ClipboardList, visible: canTransact },
-    { id: 'pembayaran', label: 'Pembayaran & Kwitansi', icon: CreditCard, visible: canTransact },
-    { id: 'tunggakan', label: 'Daftar Tunggakan', icon: AlertCircle, visible: true },
-    { id: 'laporan', label: 'Laporan Keuangan', icon: FileSpreadsheet, visible: true },
-    { id: 'audit', label: 'Log Aktivitas', icon: History, visible: canViewAudit },
-  ];
+  const pendingOrtuCount = pembayaranOrtuList.filter(
+    (p) => p.status === 'menunggu_verifikasi'
+  ).length;
 
-  const activeTitle = navItems.find((n) => n.id === activeRoute)?.label || 'Dashboard';
+  const navItems: NavItem[] =
+    effectiveRole === 'orang_tua'
+      ? [{ id: 'portal_ortu', label: 'Portal Orang Tua', icon: CreditCard, visible: true }]
+      : [
+          { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: true },
+          {
+            id: 'master',
+            label: 'Data Master',
+            icon: BookOpen,
+            visible: canManageMaster || effectiveRole === 'petugas',
+          },
+          { id: 'tagihan', label: 'Tagihan Bulanan', icon: ClipboardList, visible: canTransact },
+          {
+            id: 'pembayaran',
+            label: 'Pembayaran & Kwitansi',
+            icon: CreditCard,
+            visible: canTransact,
+          },
+          { id: 'tunggakan', label: 'Daftar Tunggakan', icon: AlertCircle, visible: true },
+          { id: 'laporan', label: 'Laporan Keuangan', icon: FileSpreadsheet, visible: true },
+          { id: 'audit', label: 'Log Aktivitas', icon: History, visible: canViewAudit },
+        ];
+
+  const activeTitle =
+    navItems.find((n) => n.id === activeRoute)?.label ||
+    (effectiveRole === 'orang_tua' ? 'Portal Orang Tua' : 'Dashboard');
 
   const handleNav = (route: PageRoute) => {
     onNavigate(route);
@@ -100,7 +120,12 @@ export function Layout({ activeRoute, onNavigate, children }: Props) {
                 }`}
               >
                 <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-teal-700' : 'text-slate-400'}`} />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate flex-1">{item.label}</span>
+                {item.id === 'pembayaran' && pendingOrtuCount > 0 && (
+                  <span className="text-xs font-mono font-semibold text-amber-700 tabular-nums">
+                    ({pendingOrtuCount})
+                  </span>
+                )}
               </button>
             );
           })}
@@ -122,7 +147,14 @@ export function Layout({ activeRoute, onNavigate, children }: Props) {
               onChange={(e) => {
                 const val = e.target.value as ActiveRole;
                 setPreviewRole(val === 'admin' ? null : val);
-                if (val === 'kepala_sekolah' && ['master', 'tagihan', 'pembayaran'].includes(activeRoute)) {
+                if (val === 'orang_tua') {
+                  onNavigate('portal_ortu');
+                } else if (activeRoute === 'portal_ortu') {
+                  onNavigate('dashboard');
+                } else if (
+                  val === 'kepala_sekolah' &&
+                  ['master', 'tagihan', 'pembayaran'].includes(activeRoute)
+                ) {
                   onNavigate('dashboard');
                 }
               }}
@@ -131,6 +163,7 @@ export function Layout({ activeRoute, onNavigate, children }: Props) {
               <option value="admin">Admin (Penuh)</option>
               <option value="petugas">Petugas / Bendahara</option>
               <option value="kepala_sekolah">Kepala Sekolah</option>
+              <option value="orang_tua">Orang Tua / Wali</option>
             </select>
           </div>
         )}

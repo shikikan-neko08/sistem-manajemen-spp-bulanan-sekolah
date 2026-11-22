@@ -1,4 +1,9 @@
-import type { StatusPembayaran, StatusSiswa, StatusTagihan } from '../types/spp.ts';
+import type {
+  StatusPembayaran,
+  StatusPembayaranOrtu,
+  StatusSiswa,
+  StatusTagihan,
+} from '../types/spp.ts';
 
 export function StatusTagihanBadge({ status }: { status: StatusTagihan }) {
   const styles: Record<StatusTagihan, { label: string; cls: string }> = {
@@ -34,6 +39,29 @@ export function StatusPembayaranBadge({ status }: { status: StatusPembayaran }) 
   return (
     <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md border bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
       Sah
+    </span>
+  );
+}
+
+export function StatusPembayaranOrtuBadge({ status }: { status: StatusPembayaranOrtu }) {
+  const map: Record<StatusPembayaranOrtu, { label: string; cls: string }> = {
+    menunggu_verifikasi: {
+      label: 'Menunggu Verifikasi',
+      cls: 'bg-amber-50 text-amber-700 border-amber-200',
+    },
+    diverifikasi: {
+      label: 'Diverifikasi',
+      cls: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    },
+    ditolak: {
+      label: 'Ditolak',
+      cls: 'bg-red-50 text-red-700 border-red-200',
+    },
+  };
+  const cfg = map[status];
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md border whitespace-nowrap ${cfg.cls}`}>
+      {cfg.label}
     </span>
   );
 }

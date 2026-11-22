@@ -20,7 +20,7 @@
       "destination": "https://gen-lang-client-0794128504.firebaseapp.com/__/firebase/:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/|__/auth/|__/firebase/).*)",
       "destination": "/index.html"
     }
   ]

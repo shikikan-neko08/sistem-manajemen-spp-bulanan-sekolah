@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Download, Printer, X } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext.tsx';
 import { formatRupiah, formatTanggalIndonesia, namaBulan } from '../lib/format.ts';
 import { cetakPdfKwitansi } from '../services/exportService.ts';
 import { ambilDetailPembayaran } from '../services/pembayaranService.ts';
@@ -13,15 +14,20 @@ interface Props {
 }
 
 export function KwitansiPrintModal({ pembayaran, initialDetails, sekolah, onClose }: Props) {
+  const { profile, isParent } = useAuth();
   const [details, setDetails] = useState<PembayaranDetail[]>(initialDetails || []);
   const [loading, setLoading] = useState(!initialDetails);
 
   useEffect(() => {
     if (initialDetails) return;
     let active = true;
-    ambilDetailPembayaran(pembayaran.id)
+    const parentEmailFilter = isParent ? (profile?.email || '').trim().toLowerCase() : undefined;
+    ambilDetailPembayaran(pembayaran.id, parentEmailFilter)
       .then((res) => {
         if (active) setDetails(res);
+      })
+      .catch(() => {
+        if (active) setDetails([]);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -29,7 +35,7 @@ export function KwitansiPrintModal({ pembayaran, initialDetails, sekolah, onClos
     return () => {
       active = false;
     };
-  }, [pembayaran.id, initialDetails]);
+  }, [pembayaran.id, initialDetails, isParent, profile?.email]);
 
   const namaSekolah = sekolah?.namaSekolah || 'SMA Negeri 1 Nusantara';
   const alamat = sekolah?.alamat || 'Jl. Pendidikan Merdeka No. 45';
